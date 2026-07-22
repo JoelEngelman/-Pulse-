@@ -26,7 +26,13 @@ router.post("/auth/register", async (req, res) => {
   const [user] = await db.insert(usersTable).values({ username, displayName, passwordHash }).returning();
 
   req.session.userId = user.id;
-  res.status(201).json(toPublicUser(user));
+  req.session.save((err) => {
+    if (err) {
+      res.status(500).json({ error: "Session error" });
+      return;
+    }
+    res.status(201).json(toPublicUser(user));
+  });
 });
 
 router.post("/auth/login", async (req, res) => {
@@ -54,7 +60,13 @@ router.post("/auth/login", async (req, res) => {
   user.isOnline = true;
 
   req.session.userId = user.id;
-  res.json(toPublicUser(user));
+  req.session.save((err) => {
+    if (err) {
+      res.status(500).json({ error: "Session error" });
+      return;
+    }
+    res.json(toPublicUser(user));
+  });
 });
 
 router.post("/auth/logout", requireAuth, async (req, res) => {
