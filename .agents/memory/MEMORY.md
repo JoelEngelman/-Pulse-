@@ -1,0 +1,3 @@
+- [Orval param collision fix](orval-param-collision.md) — query-param operations generate duplicate `<OpId>Params` names; fix by removing schemas config and keeping api-zod barrel to api only.
+- [Express 5 req.params types](express5-params.md) — req.params values are `string | string[]`; always cast with `String(req.params["key"])` before parseInt or decodeURIComponent.
+- [App.tsx QueryClientProvider](app-tsx-provider.md) — design subagent may omit QueryClientProvider/TooltipProvider/WouterRouter from App.tsx; always verify these wrappers are present after subagent finishes.

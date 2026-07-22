@@ -1,0 +1,240 @@
+import { useState, useEffect, useRef } from "react";
+import { useRoute, Link } from "wouter";
+import { 
+  useGetConversation, 
+  useGetMessages, 
+  useSendMessage,
+  useMarkRead,
+  useSetTyping,
+  useGetTypingStatus,
+  useGetMe,
+  Message,
+  getGetConversationQueryKey,
+  getGetMessagesQueryKey,
+  getGetTypingStatusQueryKey
+} from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { ConversationsList } from "@/components/chat/conversations-list";
+import { MessageBubble } from "@/components/chat/message-bubble";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ChevronLeft, Send, MoreVertical, Loader2 } from "lucide-react";
+import { getInitials } from "@/lib/utils";
+
+export default function Chat() {
+  const [, params] = useRoute("/conversations/:id");
+  const conversationId = params?.id ? parseInt(params.id) : 0;
+  
+  const [content, setContent] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
+  
+  const { data: currentUser } = useGetMe();
+  
+  const { data: conversation, isLoading: isLoadingConv } = useGetConversation(conversationId, {
+    query: {
+      enabled: !!conversationId,
+      queryKey: getGetConversationQueryKey(conversationId)
+    }
+  });
+
+  const { data: messages, isLoading: isLoadingMessages } = useGetMessages(conversationId, undefined, {
+    query: {
+      enabled: !!conversationId,
+      refetchInterval: 2000,
+      queryKey: getGetMessagesQueryKey(conversationId)
+    }
+  });
+
+  const { data: typingStatus } = useGetTypingStatus(conversationId, {
+    query: {
+      enabled: !!conversationId,
+      refetchInterval: 1000,
+      queryKey: getGetTypingStatusQueryKey(conversationId)
+    }
+  });
+
+  const sendMessage = useSendMessage();
+  const markRead = useMarkRead();
+  const setTyping = useSetTyping();
+
+  // Mark as read when conversation is opened
+  useEffect(() => {
+    if (conversationId && conversation?.unreadCount) {
+      markRead.mutate({ conversationId }, {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+        }
+      });
+    }
+  }, [conversationId, conversation?.unreadCount]);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  // Handle typing indicator
+  useEffect(() => {
+    if (!conversationId) return;
+    
+    const timeout = setTimeout(() => {
+      if (content.length > 0) {
+        setTyping.mutate({ conversationId, data: { isTyping: true } });
+      } else {
+        setTyping.mutate({ conversationId, data: { isTyping: false } });
+      }
+    }, 300);
+    
+    return () => clearTimeout(timeout);
+  }, [content, conversationId]);
+
+  const handleSend = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!content.trim() || !conversationId) return;
+
+    sendMessage.mutate(
+      { conversationId, data: { content: content.trim() } },
+      {
+        onSuccess: () => {
+          setContent("");
+          queryClient.invalidateQueries({ queryKey: [`/api/conversations/${conversationId}/messages`] });
+          queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+          setTyping.mutate({ conversationId, data: { isTyping: false } });
+        }
+      }
+    );
+  };
+
+  const otherUser = conversation?.participants.find(p => p.id !== currentUser?.id);
+  const typingUsers = typingStatus?.filter(u => u.userId !== currentUser?.id);
+  const isOtherUserTyping = typingUsers && typingUsers.length > 0;
+
+  return (
+    <div className="flex w-full h-full">
+      {/* Sidebar Panel - Hidden on mobile when chat is active */}
+      <div className="hidden md:flex w-80 lg:w-96 border-r border-border bg-card/30 flex-col flex-shrink-0">
+        <div className="h-16 flex items-center px-4 border-b border-border flex-shrink-0">
+          <h2 className="text-lg font-semibold">Messages</h2>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <ConversationsList activeId={conversationId} />
+        </div>
+      </div>
+
+      {/* Main Chat Panel */}
+      <div className="flex-1 flex flex-col bg-background/50 h-full relative">
+        {/* Chat Header */}
+        <div className="h-16 border-b border-border bg-card/50 backdrop-blur-sm flex items-center px-4 justify-between flex-shrink-0 z-10 sticky top-0">
+          <div className="flex items-center gap-3">
+            <Link href="/conversations" className="md:hidden p-2 -ml-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
+              <ChevronLeft className="w-6 h-6" />
+            </Link>
+            
+            {otherUser ? (
+              <div className="flex items-center gap-3">
+                <Avatar className="w-10 h-10">
+                  <AvatarImage src={otherUser.avatarUrl || ""} alt={otherUser.displayName} />
+                  <AvatarFallback>{getInitials(otherUser.displayName)}</AvatarFallback>
+                </Avatar>
+                <div className="flex flex-col">
+                  <span className="font-semibold text-foreground">{otherUser.displayName}</span>
+                  <div className="flex items-center gap-1.5">
+                    <div className={`w-2 h-2 rounded-full ${otherUser.isOnline ? 'bg-green-500' : 'bg-muted-foreground'}`} />
+                    <span className="text-xs text-muted-foreground">
+                      {otherUser.isOnline ? 'Online' : 'Offline'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="w-48 h-10 bg-secondary/50 animate-pulse rounded-lg" />
+            )}
+          </div>
+          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+            <MoreVertical className="w-5 h-5" />
+          </Button>
+        </div>
+
+        {/* Message List */}
+        <div 
+          ref={scrollRef}
+          className="flex-1 overflow-y-auto p-4 custom-scrollbar flex flex-col gap-6"
+        >
+          {isLoadingMessages ? (
+            <div className="flex-1 flex items-center justify-center">
+              <Loader2 className="w-8 h-8 text-primary animate-spin" />
+            </div>
+          ) : !messages?.length ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground">
+              <div className="w-16 h-16 bg-secondary rounded-full flex items-center justify-center mb-4">
+                <Avatar className="w-10 h-10 opacity-50 grayscale">
+                  <AvatarImage src={otherUser?.avatarUrl || ""} />
+                  <AvatarFallback>{getInitials(otherUser?.displayName || "?")}</AvatarFallback>
+                </Avatar>
+              </div>
+              <p>This is the beginning of your conversation.</p>
+              <p className="text-sm mt-1">Say hi to {otherUser?.displayName}!</p>
+            </div>
+          ) : (
+            messages.map((message: Message, idx: number) => {
+              const prevMessage = idx > 0 ? messages[idx - 1] : null;
+              const showAvatar = !prevMessage || prevMessage.senderId !== message.senderId;
+              
+              return (
+                <MessageBubble 
+                  key={message.id} 
+                  message={message} 
+                  isOwn={message.senderId === currentUser?.id}
+                  showAvatar={showAvatar}
+                />
+              );
+            })
+          )}
+          
+          {/* Typing Indicator */}
+          {isOtherUserTyping && (
+            <div className="flex items-end gap-2 animate-in fade-in slide-in-from-bottom-2">
+              <Avatar className="w-8 h-8 opacity-70">
+                <AvatarImage src={otherUser?.avatarUrl || ""} />
+                <AvatarFallback>{getInitials(otherUser?.displayName || "?")}</AvatarFallback>
+              </Avatar>
+              <div className="bg-secondary rounded-2xl rounded-bl-sm p-3 py-4 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Input Area */}
+        <div className="p-4 bg-card/30 border-t border-border flex-shrink-0">
+          <form 
+            onSubmit={handleSend}
+            className="flex items-center gap-2 bg-background border border-border rounded-xl pr-2 focus-within:ring-1 focus-within:ring-primary focus-within:border-primary transition-all overflow-hidden"
+          >
+            <Input
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="Type a message..."
+              className="flex-1 border-0 bg-transparent ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-4 h-12"
+            />
+            <Button 
+              type="submit" 
+              size="icon" 
+              variant="glow"
+              disabled={!content.trim() || sendMessage.isPending}
+              className="h-9 w-9 rounded-lg shrink-0"
+            >
+              <Send className="w-4 h-4 ml-0.5" />
+            </Button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}

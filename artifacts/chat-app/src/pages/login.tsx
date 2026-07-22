@@ -1,0 +1,102 @@
+import { useState } from "react";
+import { useLocation, Link } from "wouter";
+import { useLogin } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Zap } from "lucide-react";
+
+export default function Login() {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+
+  const login = useLogin();
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    login.mutate(
+      { data: { username, password } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+          setLocation("/conversations");
+        },
+        onError: (err: any) => {
+          setError(err.error?.error || "Failed to login. Please try again.");
+        },
+      }
+    );
+  };
+
+  return (
+    <div className="min-h-[100dvh] w-full flex items-center justify-center bg-background p-4 relative overflow-hidden">
+      {/* Background glow effects */}
+      <div className="absolute top-1/4 -left-32 w-96 h-96 bg-primary/20 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-1/4 -right-32 w-96 h-96 bg-accent/20 rounded-full blur-[120px] pointer-events-none" />
+      
+      <div className="w-full max-w-md bg-card/50 backdrop-blur-xl border border-border rounded-2xl p-8 shadow-2xl relative z-10">
+        <div className="flex flex-col items-center mb-8">
+          <div className="bg-primary/10 text-primary p-3 rounded-2xl mb-4 electric-glow">
+            <Zap className="w-8 h-8 fill-primary" />
+          </div>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Welcome back</h1>
+          <p className="text-muted-foreground mt-2 text-center">
+            Sign in to continue to Pulse
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <div className="p-3 text-sm bg-destructive/10 border border-destructive/20 text-destructive rounded-lg">
+              {error}
+            </div>
+          )}
+          
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Username</label>
+            <Input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="e.g. neo"
+              className="bg-background/50"
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Password</label>
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="bg-background/50"
+              required
+            />
+          </div>
+
+          <Button 
+            type="submit" 
+            className="w-full mt-4" 
+            variant="glow"
+            disabled={login.isPending}
+          >
+            {login.isPending ? "Connecting..." : "Sign In"}
+          </Button>
+        </form>
+
+        <p className="mt-8 text-center text-sm text-muted-foreground">
+          Don't have an account?{" "}
+          <Link href="/register" className="text-primary hover:underline font-medium">
+            Create one
+          </Link>
+        </p>
+      </div>
+    </div>
+  );
+}
