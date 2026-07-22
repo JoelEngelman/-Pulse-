@@ -360,7 +360,12 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, { ...init, method, headers });
+  // Always include credentials (cookies) so session-based auth works across
+  // Replit's path-based proxy routing where the frontend and API share the
+  // same domain but are served from different ports.
+  const credentials = init.credentials ?? "include";
+
+  const response = await fetch(input, { ...init, method, headers, credentials });
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);
