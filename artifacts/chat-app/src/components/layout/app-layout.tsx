@@ -41,30 +41,33 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-[100dvh] w-full bg-background overflow-hidden text-foreground">
       {/* Sidebar Nav */}
-      <nav className="w-16 md:w-20 lg:w-64 border-r border-border bg-card flex flex-col justify-between p-4 flex-shrink-0 z-10">
+      <nav className="w-[72px] lg:w-64 border-r border-border bg-card flex flex-col justify-between py-5 px-3 lg:px-4 flex-shrink-0 z-10">
+        {/* Logo */}
         <div className="flex flex-col gap-8">
-          <Link href="/conversations" className="flex items-center gap-3 px-2 lg:px-4 group outline-none">
-            <div className="bg-primary/10 text-primary p-2 rounded-xl group-hover:bg-primary/20 transition-colors">
+          <Link href="/conversations" className="group outline-none flex items-center justify-center lg:justify-start gap-3" title="Pulse">
+            {/* collapsed: just the icon, large and centred */}
+            <div className="flex-shrink-0 flex items-center justify-center w-11 h-11 bg-primary/10 text-primary rounded-2xl group-hover:bg-primary/20 transition-colors">
               <Zap className="w-6 h-6 fill-primary" />
             </div>
             <span className="font-bold text-xl tracking-tight hidden lg:block text-foreground">Pulse</span>
           </Link>
 
-          <div className="flex flex-col gap-2">
+          {/* Nav items */}
+          <div className="flex flex-col gap-1.5">
             {navItems.map((item) => {
               const isActive = location.startsWith(item.href);
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-4 p-3 rounded-xl transition-all outline-none ${
+                  className={`flex items-center justify-center lg:justify-start gap-3.5 p-3 rounded-xl transition-all outline-none ${
                     isActive
                       ? "bg-primary text-primary-foreground shadow-[0_0_15px_rgba(0,200,200,0.15)]"
                       : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                   }`}
                   title={item.label}
                 >
-                  <item.icon className={`w-5 h-5 ${isActive ? "" : "opacity-80"}`} />
+                  <item.icon className="w-[22px] h-[22px] flex-shrink-0" />
                   <span className={`font-medium hidden lg:block ${isActive ? "text-primary-foreground" : ""}`}>
                     {item.label}
                   </span>
@@ -74,26 +77,38 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        <div className="flex flex-col gap-2">
+        {/* Bottom actions */}
+        <div className="flex flex-col gap-1.5">
           {/* Theme toggle */}
           <button
             onClick={toggleTheme}
             title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            className="flex items-center gap-4 p-3 rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors outline-none"
+            className="flex items-center justify-center lg:justify-start gap-3.5 p-3 rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors outline-none"
           >
             {theme === "dark" ? (
-              <Sun className="w-5 h-5 opacity-80" />
+              <Sun className="w-[22px] h-[22px] flex-shrink-0" />
             ) : (
-              <Moon className="w-5 h-5 opacity-80" />
+              <Moon className="w-[22px] h-[22px] flex-shrink-0" />
             )}
             <span className="font-medium hidden lg:block">
               {theme === "dark" ? "Light mode" : "Dark mode"}
             </span>
           </button>
 
+          {/* Logout */}
+          <button
+            onClick={handleLogout}
+            className="flex items-center justify-center lg:justify-start gap-3.5 p-3 rounded-xl text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors outline-none"
+            title="Log out"
+          >
+            <LogOut className="w-[22px] h-[22px] flex-shrink-0" />
+            <span className="font-medium hidden lg:block">Log out</span>
+          </button>
+
+          {/* User card — wide sidebar only */}
           {user && (
-            <div className="hidden lg:flex items-center gap-3 px-2 py-3">
-              <div className="relative">
+            <div className="hidden lg:flex items-center gap-3 px-1 pt-2 mt-1 border-t border-border">
+              <div className="relative flex-shrink-0">
                 <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center overflow-hidden border border-border">
                   {user.avatarUrl ? (
                     <img src={user.avatarUrl} alt={user.displayName} className="w-full h-full object-cover" />
@@ -103,24 +118,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 </div>
                 <div className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-card" />
               </div>
-              <div className="flex flex-col overflow-hidden">
+              <div className="flex flex-col overflow-hidden min-w-0">
                 <span className="text-sm font-medium truncate">{user.displayName}</span>
                 <span className="text-xs text-muted-foreground truncate">@{user.username}</span>
               </div>
             </div>
           )}
 
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-4 p-3 rounded-xl text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors outline-none"
-            title="Log out"
-          >
-            <LogOut className="w-5 h-5 opacity-80" />
-            <span className="font-medium hidden lg:block">Log out</span>
-          </button>
-
           {/* Footer credit */}
-          <p className="hidden lg:block text-[10px] text-muted-foreground/50 text-center pt-1 pb-0.5 tracking-wide select-none">
+          <p className="hidden lg:block text-[10px] text-muted-foreground/40 text-center pt-2 tracking-wide select-none">
             Made by Joel Engelman
           </p>
         </div>
