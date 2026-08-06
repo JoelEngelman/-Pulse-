@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ChevronLeft, Send, MoreVertical, Loader2 } from "lucide-react";
+import { MediaButton } from "@/components/chat/media-picker";
 import { getInitials } from "@/lib/utils";
 
 export default function Chat() {
@@ -217,11 +218,27 @@ export default function Chat() {
             onSubmit={handleSend}
             className="flex items-center gap-2 bg-background border border-border rounded-xl pr-2 focus-within:ring-1 focus-within:ring-primary focus-within:border-primary transition-all overflow-hidden"
           >
+            {/* Media picker */}
+            <div className="pl-2 flex-shrink-0">
+              <MediaButton
+                onSelect={(mediaContent) => {
+                  sendMessage.mutate(
+                    { conversationId, data: { content: mediaContent } },
+                    {
+                      onSuccess: () => {
+                        queryClient.invalidateQueries({ queryKey: [`/api/conversations/${conversationId}/messages`] });
+                        queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+                      }
+                    }
+                  );
+                }}
+              />
+            </div>
             <Input
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder="Type a message..."
-              className="flex-1 border-0 bg-transparent ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-4 h-12"
+              className="flex-1 border-0 bg-transparent ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-2 h-12"
             />
             <Button 
               type="submit" 

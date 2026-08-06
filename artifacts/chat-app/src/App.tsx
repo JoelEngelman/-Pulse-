@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Switch, Route, Redirect, Router as WouterRouter } from "wouter";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { ThemeProvider } from "@/hooks/use-theme";
+import { CookieBanner } from "@/components/cookie-banner";
 import { AppLayout } from "@/components/layout/app-layout";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
@@ -71,6 +72,7 @@ export default function App() {
           </AuthProvider>
         </WouterRouter>
         <Toaster />
+        <CookieBanner />
       </TooltipProvider>
     </QueryClientProvider>
     </ThemeProvider>

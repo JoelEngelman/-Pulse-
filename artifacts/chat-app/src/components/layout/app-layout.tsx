@@ -118,6 +118,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <LogOut className="w-5 h-5 opacity-80" />
             <span className="font-medium hidden lg:block">Log out</span>
           </button>
+
+          {/* Footer credit */}
+          <p className="hidden lg:block text-[10px] text-muted-foreground/50 text-center pt-1 pb-0.5 tracking-wide select-none">
+            Made by Joel Engelman
+          </p>
         </div>
       </nav>
 

@@ -9,6 +9,29 @@ import { Button } from "@/components/ui/button";
 
 const COMMON_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
+// Detect whether message content is a media URL to render inline
+function getMediaType(content: string): "image" | "gif" | "sticker" | "text" {
+  const trimmed = content.trim();
+
+  // Single emoji / sticker
+  const isSingleEmoji = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)(\u200D(\p{Emoji_Presentation}|\p{Emoji}\uFE0F))*$/u.test(trimmed);
+  if (isSingleEmoji) return "sticker";
+
+  // GIF URL (Giphy, Tenor, or .gif extension)
+  if (
+    /^https?:\/\/.+\.gif(\?.*)?$/i.test(trimmed) ||
+    trimmed.includes("giphy.com/media/") ||
+    trimmed.includes("media.tenor.com/") ||
+    trimmed.includes("media1.tenor.com/") ||
+    trimmed.includes("media2.tenor.com/")
+  ) return "gif";
+
+  // Generic image URL
+  if (/^https?:\/\/.+\.(jpg|jpeg|png|webp|svg|avif)(\?.*)?$/i.test(trimmed)) return "image";
+
+  return "text";
+}
+
 export function MessageBubble({ message, isOwn, showAvatar }: { message: Message, isOwn: boolean, showAvatar: boolean }) {
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -142,21 +165,59 @@ export function MessageBubble({ message, isOwn, showAvatar }: { message: Message
                   <X className="w-4 h-4" />
                 </Button>
               </div>
-            ) : (
-              <div 
-                className={`px-4 py-2.5 rounded-2xl text-[15px] leading-relaxed relative ${
-                  isOwn 
-                    ? "bg-primary text-primary-foreground rounded-br-sm" 
-                    : "bg-secondary text-foreground rounded-bl-sm"
-                }`}
-              >
-                <p className="whitespace-pre-wrap break-words">{message.content}</p>
-                <div className={`text-[10px] mt-1 flex items-center justify-end gap-1.5 opacity-60 ${isOwn ? "text-primary-foreground" : "text-muted-foreground"}`}>
-                  {message.editedAt && <span>(edited)</span>}
-                  <span>{formatTime(message.createdAt)}</span>
+            ) : (() => {
+              const mediaType = getMediaType(message.content);
+
+              if (mediaType === "sticker") {
+                return (
+                  <div className="relative select-none">
+                    <span className="text-5xl leading-none">{message.content.trim()}</span>
+                    <div className={`text-[10px] mt-1 flex items-center ${isOwn ? "justify-end" : "justify-start"} gap-1 opacity-50 text-muted-foreground`}>
+                      {message.editedAt && <span>(edited)</span>}
+                      <span>{formatTime(message.createdAt)}</span>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (mediaType === "image" || mediaType === "gif") {
+                return (
+                  <div className="relative">
+                    <div className={`rounded-2xl overflow-hidden max-w-[260px] ${isOwn ? "rounded-br-sm" : "rounded-bl-sm"}`}>
+                      <img
+                        src={message.content.trim()}
+                        alt={mediaType === "gif" ? "GIF" : "Image"}
+                        className="w-full object-cover block"
+                        loading="lazy"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = "none";
+                        }}
+                      />
+                    </div>
+                    <div className={`text-[10px] mt-1 flex items-center ${isOwn ? "justify-end" : "justify-start"} gap-1 opacity-50 text-muted-foreground`}>
+                      {message.editedAt && <span>(edited)</span>}
+                      <span>{formatTime(message.createdAt)}</span>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div 
+                  className={`px-4 py-2.5 rounded-2xl text-[15px] leading-relaxed relative ${
+                    isOwn 
+                      ? "bg-primary text-primary-foreground rounded-br-sm" 
+                      : "bg-secondary text-foreground rounded-bl-sm"
+                  }`}
+                >
+                  <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                  <div className={`text-[10px] mt-1 flex items-center justify-end gap-1.5 opacity-60 ${isOwn ? "text-primary-foreground" : "text-muted-foreground"}`}>
+                    {message.editedAt && <span>(edited)</span>}
+                    <span>{formatTime(message.createdAt)}</span>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Hover Reaction Picker */}
             {!isEditing && isHovered && (
