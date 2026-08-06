@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useLocation, Link } from "wouter";
-import { useRegister } from "@workspace/api-client-react";
+import { useRegister, getGetMeQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Zap } from "lucide-react";
+import { Zap, Sun, Moon } from "lucide-react";
+import { useTheme } from "@/hooks/use-theme";
 
 export default function Register() {
   const [username, setUsername] = useState("");
@@ -13,6 +14,7 @@ export default function Register() {
   const [error, setError] = useState("");
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+  const { theme, toggleTheme } = useTheme();
 
   const register = useRegister();
 
@@ -22,8 +24,11 @@ export default function Register() {
     register.mutate(
       { data: { username, displayName, password } },
       {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+        onSuccess: (user) => {
+          // Seed the auth cache directly from the register response so
+          // ProtectedRoute immediately sees isAuthenticated=true without
+          // waiting for a cookie-based /api/auth/me roundtrip.
+          queryClient.setQueryData(getGetMeQueryKey(), user);
           setLocation("/conversations");
         },
         onError: (err: any) => {
@@ -35,6 +40,14 @@ export default function Register() {
 
   return (
     <div className="min-h-[100dvh] w-full flex items-center justify-center bg-background p-4 relative overflow-hidden">
+      {/* Theme toggle */}
+      <button
+        onClick={toggleTheme}
+        className="absolute top-4 right-4 p-2 rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+        title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      >
+        {theme === "dark" ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+      </button>
       {/* Background glow effects */}
       <div className="absolute top-1/4 -right-32 w-96 h-96 bg-primary/20 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-1/4 -left-32 w-96 h-96 bg-accent/20 rounded-full blur-[120px] pointer-events-none" />

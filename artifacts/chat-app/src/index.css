@@ -56,7 +56,51 @@
   --animate-pulse-fast: pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-:root, .dark {
+/* ── Light mode (default) ──────────────────────────────────────────────── */
+:root {
+  --background: 220 20% 97%;
+  --foreground: 240 10% 8%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 8%;
+  --card-border: 220 15% 88%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 8%;
+  --popover-border: 220 15% 88%;
+
+  --primary: 185 80% 30%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 220 15% 92%;
+  --secondary-foreground: 240 10% 20%;
+
+  --muted: 220 15% 92%;
+  --muted-foreground: 240 5% 46%;
+
+  --accent: 280 70% 52%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 350 80% 50%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 220 15% 88%;
+  --input: 220 15% 88%;
+  --ring: 185 80% 30%;
+
+  --sidebar: 220 20% 95%;
+  --sidebar-foreground: 240 10% 12%;
+  --sidebar-border: 220 15% 88%;
+  --sidebar-primary: 185 80% 30%;
+  --sidebar-primary-foreground: 0 0% 100%;
+
+  --app-font-sans: 'Inter', sans-serif;
+  --app-font-mono: 'JetBrains Mono', monospace;
+  --radius: 0.75rem;
+}
+
+/* ── Dark mode ─────────────────────────────────────────────────────────── */
+.dark {
   --background: 240 10% 4%;
   --foreground: 0 0% 98%;
 
@@ -108,7 +152,7 @@
   }
 }
 
-/* Custom Scrollbar for a sleek dark look */
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -125,5 +169,9 @@
 }
 
 .electric-glow {
+  box-shadow: 0 0 15px 0px hsla(185, 100%, 50%, 0.4);
+}
+
+.dark .electric-glow {
   box-shadow: 0 0 15px 0px hsla(185, 100%, 50%, 0.4);
 }

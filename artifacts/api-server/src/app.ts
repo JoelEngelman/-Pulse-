@@ -55,8 +55,12 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
+      // Replit proxies HTTPS→HTTP internally; trust the proxy's TLS.
       secure: false,
       httpOnly: true,
+      // Explicit Lax so browsers don't silently upgrade to Strict or reject
+      // the cookie due to missing SameSite in cross-context iframes.
+      sameSite: "lax",
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     },
   }),

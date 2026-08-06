@@ -3,6 +3,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toaster";
 import { Switch, Route, Redirect, Router as WouterRouter } from "wouter";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { ThemeProvider } from "@/hooks/use-theme";
 import { AppLayout } from "@/components/layout/app-layout";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
@@ -14,9 +15,11 @@ import Profile from "@/pages/profile";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType<any> }) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, isFetching } = useAuth();
 
-  if (isLoading) {
+  // Block while loading OR during a post-login refetch so we don't
+  // prematurely redirect before the session is confirmed.
+  if (isLoading || isFetching) {
     return <div className="h-[100dvh] w-full flex items-center justify-center bg-background"><div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" /></div>;
   }
 
@@ -46,6 +49,7 @@ const queryClient = new QueryClient();
 
 export default function App() {
   return (
+    <ThemeProvider>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
@@ -69,5 +73,6 @@ export default function App() {
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
+    </ThemeProvider>
   );
 }

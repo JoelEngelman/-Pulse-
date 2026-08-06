@@ -1,6 +1,7 @@
 import { Link, useLocation } from "wouter";
-import { MessageSquare, Users, Search, User as UserIcon, LogOut, Zap } from "lucide-react";
+import { MessageSquare, Users, Search, User as UserIcon, LogOut, Zap, Sun, Moon } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { useTheme } from "@/hooks/use-theme";
 import { useLogout, useHeartbeat } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
@@ -8,6 +9,7 @@ import { useEffect } from "react";
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
   const { user } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const logout = useLogout();
   const queryClient = useQueryClient();
   const heartbeat = useHeartbeat();
@@ -57,7 +59,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   href={item.href}
                   className={`flex items-center gap-4 p-3 rounded-xl transition-all outline-none ${
                     isActive
-                      ? "bg-primary text-primary-foreground shadow-[0_0_15px_rgba(0,255,255,0.15)]"
+                      ? "bg-primary text-primary-foreground shadow-[0_0_15px_rgba(0,200,200,0.15)]"
                       : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                   }`}
                   title={item.label}
@@ -72,7 +74,23 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          {/* Theme toggle */}
+          <button
+            onClick={toggleTheme}
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            className="flex items-center gap-4 p-3 rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors outline-none"
+          >
+            {theme === "dark" ? (
+              <Sun className="w-5 h-5 opacity-80" />
+            ) : (
+              <Moon className="w-5 h-5 opacity-80" />
+            )}
+            <span className="font-medium hidden lg:block">
+              {theme === "dark" ? "Light mode" : "Dark mode"}
+            </span>
+          </button>
+
           {user && (
             <div className="hidden lg:flex items-center gap-3 px-2 py-3">
               <div className="relative">

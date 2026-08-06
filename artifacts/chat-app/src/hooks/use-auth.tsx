@@ -1,16 +1,17 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext } from "react";
 import { useGetMe, AuthUser, getGetMeQueryKey } from "@workspace/api-client-react";
 
 type AuthContextType = {
   user: AuthUser | null;
   isLoading: boolean;
+  isFetching: boolean;
   isAuthenticated: boolean;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { data: user, isLoading, error } = useGetMe({ 
+  const { data: user, isLoading, isFetching } = useGetMe({ 
     query: { 
       retry: false,
       refetchOnWindowFocus: false,
@@ -19,7 +20,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   });
 
   return (
-    <AuthContext.Provider value={{ user: user || null, isLoading, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ user: user || null, isLoading, isFetching, isAuthenticated: !!user }}>
       {children}
     </AuthContext.Provider>
   );
