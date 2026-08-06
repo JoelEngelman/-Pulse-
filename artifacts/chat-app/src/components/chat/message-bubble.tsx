@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Message, useDeleteMessage, useEditMessage, useAddReaction, useRemoveReaction, useGetMe } from "@workspace/api-client-react";
+import { Message, useDeleteMessage, useEditMessage, useAddReaction, useRemoveReaction, useGetMe, getGetMeQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatTime } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -38,7 +38,8 @@ export function MessageBubble({ message, isOwn, showAvatar }: { message: Message
   const [editContent, setEditContent] = useState(message.content);
   
   const queryClient = useQueryClient();
-  const { data: currentUser } = useGetMe();
+  // Read from cache only — prevents re-fetching auth on every bubble render.
+  const { data: currentUser } = useGetMe({ query: { staleTime: Infinity, refetchOnWindowFocus: false, queryKey: getGetMeQueryKey() } });
   
   const deleteMessage = useDeleteMessage();
   const editMessage = useEditMessage();

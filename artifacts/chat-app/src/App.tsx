@@ -16,11 +16,11 @@ import Profile from "@/pages/profile";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType<any> }) {
-  const { isAuthenticated, isLoading, isFetching } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
 
-  // Block while loading OR during a post-login refetch so we don't
-  // prematurely redirect before the session is confirmed.
-  if (isLoading || isFetching) {
+  // Only block on the very first load. setQueryData in login/register seeds
+  // auth immediately so there's no race; never block on background refetches.
+  if (isLoading) {
     return <div className="h-[100dvh] w-full flex items-center justify-center bg-background"><div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" /></div>;
   }
 

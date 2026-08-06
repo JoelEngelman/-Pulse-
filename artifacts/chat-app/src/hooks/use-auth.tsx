@@ -4,32 +4,34 @@ import { useGetMe, AuthUser, getGetMeQueryKey } from "@workspace/api-client-reac
 type AuthContextType = {
   user: AuthUser | null;
   isLoading: boolean;
-  isFetching: boolean;
   isAuthenticated: boolean;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const { data: user, isLoading, isFetching } = useGetMe({ 
-    query: { 
+  const { data: user, isLoading } = useGetMe({
+    query: {
       retry: false,
       refetchOnWindowFocus: false,
-      queryKey: getGetMeQueryKey()
-    } 
+      refetchOnReconnect: false,
+      // Auth data only changes on login / logout / register — all of which
+      // update the cache via setQueryData or queryClient.clear() directly.
+      // Never auto-refetch; let the explicit mutations own the lifecycle.
+      staleTime: Infinity,
+      queryKey: getGetMeQueryKey(),
+    },
   });
 
   return (
-    <AuthContext.Provider value={{ user: user || null, isLoading, isFetching, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ user: user ?? null, isLoading, isAuthenticated: !!user }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used within an AuthProvider");
+  return ctx;
 }

@@ -8,6 +8,7 @@ import {
   useSetTyping,
   useGetTypingStatus,
   useGetMe,
+  getGetMeQueryKey,
   Message,
   getGetConversationQueryKey,
   getGetMessagesQueryKey,
@@ -31,7 +32,8 @@ export default function Chat() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   
-  const { data: currentUser } = useGetMe();
+  // Use cached auth data only — no extra network calls from this component.
+  const { data: currentUser } = useGetMe({ query: { staleTime: Infinity, refetchOnWindowFocus: false, queryKey: getGetMeQueryKey() } });
   
   const { data: conversation, isLoading: isLoadingConv } = useGetConversation(conversationId, {
     query: {
