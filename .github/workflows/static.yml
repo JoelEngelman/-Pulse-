@@ -14,6 +14,9 @@ concurrency:
   group: "pages"
   cancel-in-progress: false
 
+env:
+  BASE_PATH: /-Pulse-/
+
 jobs:
   deploy:
     environment:
@@ -43,11 +46,14 @@ jobs:
 
       - name: Build Pulse
         run: pnpm --filter chat-app build
+        env:
+          BASE_PATH: /-Pulse-/
+          NODE_ENV: production
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: artifacts/chat-app/dist
+          path: artifacts/chat-app/dist/public
 
       - name: Deploy to GitHub Pages
         id: deployment
