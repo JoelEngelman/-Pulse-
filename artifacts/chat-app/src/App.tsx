@@ -9,6 +9,7 @@ import { AppLayout } from "@/components/layout/app-layout";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
 import Feed from "@/pages/feed";
+import Home from "@/pages/home";
 import Conversations from "@/pages/conversations";
 import Chat from "@/pages/chat";
 import Users from "@/pages/users";
@@ -43,7 +44,8 @@ export default function App() {
                 <Route path="/" component={HomeRedirect} />
                 <Route path="/login" component={Login} />
                 <Route path="/register" component={Register} />
-                <Route path="/feed" component={() => <ProtectedRoute component={Feed} />} />
+                <Route path="/feed" component={() => <ProtectedRoute component={Home} />} />
+                <Route path="/social" component={() => <ProtectedRoute component={Feed} />} />
                 <Route path="/conversations" component={() => <ProtectedRoute component={Conversations} />} />
                 <Route path="/conversations/:id" component={() => <ProtectedRoute component={Chat} />} />
                 <Route path="/users" component={() => <ProtectedRoute component={Users} />} />
