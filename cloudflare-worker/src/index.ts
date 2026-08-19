@@ -12,8 +12,9 @@ function corsHeaders(request: Request, env: Env): HeadersInit {
   return {
     "Access-Control-Allow-Origin": origin === allowed ? origin : allowed,
     "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Allow-Headers": "Content-Type, X-Requested-With",
+    "Access-Control-Allow-Headers": "Content-Type, X-Requested-With, Accept, Authorization",
     "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+    "Access-Control-Max-Age": "86400",
     "Vary": "Origin",
   };
 }
@@ -177,11 +178,10 @@ export default {
       const url = new URL(request.url);
       const path = url.pathname.replace(/\/+$/, "") || "/";
 
-      if (path === "/" || path === "/api/health") {
+      if (path === "/" || path === "/api/health" || path === "/api/healthz") {
         return json({ status: "ok", service: "pulse-api" }, 200, request, env);
       }
 
-      // Authentication
       if (path === "/api/auth/register" && request.method === "POST") {
         const body = await parseBody(request);
         const username = String(body.username || "").trim();
@@ -195,8 +195,7 @@ export default {
         const userId = id();
         const passwordHash = await createPasswordHash(password);
         const now = new Date().toISOString();
-        await env.DB.prepare(`INSERT INTO users (id, username, email, password_hash, display_name, created_at, updated_at) VALUES (?, ?, NULL, ?, ?, ?, ?)`)
-          .bind(userId, username, passwordHash, displayName, now, now).run();
+        await env.DB.prepare(`INSERT INTO users (id, username, email, password_hash, display_name, created_at, updated_at) VALUES (?, ?, NULL, ?, ?, ?, ?)`).bind(userId, username, passwordHash, displayName, now, now).run();
         const sessionId = crypto.randomUUID();
         const expires = new Date(Date.now() + SESSION_DAYS * 86400000).toISOString();
         await env.DB.prepare(`INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)`).bind(sessionId, userId, expires).run();
@@ -231,7 +230,6 @@ export default {
       const me = await requireUser(request, env);
       if (!me) return error("Not authenticated", 401, request, env);
 
-      // Users
       if (path === "/api/users" && request.method === "GET") {
         const search = (url.searchParams.get("search") || "").trim();
         const rows = search
@@ -253,7 +251,6 @@ export default {
 
       if (path === "/api/users/me/heartbeat" && request.method === "POST") return json({ ok: true }, 200, request, env);
 
-      // Conversations
       if (path === "/api/conversations" && request.method === "GET") {
         const rows = await env.DB.prepare(`SELECT conversation_id FROM conversation_members WHERE user_id = ?`).bind(me.id).all<any>();
         const result = await Promise.all(rows.results.map((r: any) => conversationObject(env, r.conversation_id, me.id)));
@@ -266,11 +263,7 @@ export default {
         const participantId = String(body.participantId || "");
         const participant = await env.DB.prepare(`SELECT id FROM users WHERE id = ?`).bind(participantId).first();
         if (!participant || participantId === String(me.id)) return error("Invalid participant", 400, request, env);
-        const existing = await env.DB.prepare(`
-          SELECT a.conversation_id FROM conversation_members a
-          JOIN conversation_members b ON a.conversation_id = b.conversation_id
-          WHERE a.user_id = ? AND b.user_id = ? LIMIT 1
-        `).bind(me.id, participantId).first<any>();
+        const existing = await env.DB.prepare(`SELECT a.conversation_id FROM conversation_members a JOIN conversation_members b ON a.conversation_id = b.conversation_id WHERE a.user_id = ? AND b.user_id = ? LIMIT 1`).bind(me.id, participantId).first<any>();
         let convId = existing?.conversation_id;
         if (!convId) {
           convId = id();
@@ -292,20 +285,15 @@ export default {
       }
 
       const readMatch = path.match(/^\/api\/conversations\/([^/]+)\/read$/);
-      if (readMatch && request.method === "POST") {
-        return json({ ok: true }, 200, request, env);
-      }
+      if (readMatch && request.method === "POST") return json({ ok: true }, 200, request, env);
 
       const typingMatch = path.match(/^\/api\/conversations\/([^/]+)\/typing$/);
       if (typingMatch && request.method === "POST") {
         const body = await parseBody(request);
         const convId = typingMatch[1];
         const isTyping = !!body.isTyping;
-        if (isTyping) {
-          await env.DB.prepare(`INSERT INTO typing_indicators (conversation_id, user_id, updated_at) VALUES (?, ?, ?) ON CONFLICT(conversation_id,user_id) DO UPDATE SET updated_at=excluded.updated_at`).bind(convId, me.id, new Date().toISOString()).run();
-        } else {
-          await env.DB.prepare(`DELETE FROM typing_indicators WHERE conversation_id = ? AND user_id = ?`).bind(convId, me.id).run();
-        }
+        if (isTyping) await env.DB.prepare(`INSERT INTO typing_indicators (conversation_id, user_id, updated_at) VALUES (?, ?, ?) ON CONFLICT(conversation_id,user_id) DO UPDATE SET updated_at=excluded.updated_at`).bind(convId, me.id, new Date().toISOString()).run();
+        else await env.DB.prepare(`DELETE FROM typing_indicators WHERE conversation_id = ? AND user_id = ?`).bind(convId, me.id).run();
         return json({ ok: true }, 200, request, env);
       }
 
