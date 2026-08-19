@@ -10,43 +10,51 @@ permissions:
 
 jobs:
   patch:
+    # Do not run the patch again on the commit this job creates.
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Patch Worker participant lookup
+      - name: Patch Worker participant and conversation ID precision
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p = Path('cloudflare-worker/src/index.ts')
           s = p.read_text()
+
           old = 'const body = await parseBody(request); const participantId = String(body.participantId || ""); const participant = await env.DB.prepare(`SELECT id FROM users WHERE id = ?`).bind(participantId).first(); if (!participant) return error("Invalid participant", 400, request, env); const existing = await env.DB.prepare(`SELECT a.conversation_id FROM conversation_members a JOIN conversation_members b ON a.conversation_id = b.conversation_id WHERE a.user_id = ? AND b.user_id = ? LIMIT 1`).bind(me.id, participantId).first<any>();'
           new = 'const body = await parseBody(request); const participantId = String(body.participantId || ""); const participant = await env.DB.prepare(`SELECT id FROM users WHERE id = ? OR CAST(id AS REAL) = ? LIMIT 1`).bind(participantId, Number(participantId)).first<any>(); if (!participant) return error("Invalid participant", 400, request, env); const resolvedParticipantId = String(participant.id); const existing = await env.DB.prepare(`SELECT a.conversation_id FROM conversation_members a JOIN conversation_members b ON a.conversation_id = b.conversation_id WHERE a.user_id = ? AND b.user_id = ? LIMIT 1`).bind(me.id, resolvedParticipantId).first<any>();'
           if old in s:
-              p.write_text(s.replace(old, new))
-              print('patched')
-          elif 'CAST(id AS REAL) = ?' in s and 'resolvedParticipantId' in s:
-              print('already patched')
-          else:
-              raise SystemExit('conversation participant lookup pattern not found')
-          PY
+              s = s.replace(old, new)
+              print('patched participant lookup')
 
-      - name: Ensure conversation member uses resolved ID
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('cloudflare-worker/src/index.ts')
-          s = p.read_text()
           old = 'env.DB.prepare(`INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?), (?, ?)`).bind(convId, me.id, convId, participantId)'
           new = 'env.DB.prepare(`INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?), (?, ?)`).bind(convId, me.id, convId, resolvedParticipantId)'
           if old in s:
-              p.write_text(s.replace(old, new))
+              s = s.replace(old, new)
               print('patched member insert')
-          elif 'convId, resolvedParticipantId)' in s:
-              print('member insert already patched')
-          else:
-              raise SystemExit('conversation member insert pattern not found')
+
+          old = 'function id(): string { return `${Date.now()}${Math.floor(Math.random() * 1_000_000)}`; }'
+          new = 'function id(): string { return `${Date.now()}${String(Math.floor(Math.random() * 100)).padStart(2, "0")}`; }'
+          if old in s:
+              s = s.replace(old, new)
+              print('patched ID generator to stay within JavaScript safe integer range')
+
+          old = 'return { id: Number(row.id), conversationId: Number(row.conversation_id), senderId: Number(row.sender_id), sender: sender ? publicUser(sender) : null, content: row.body, editedAt: null, createdAt: row.created_at, reactions: await reactions(env, row.id) };'
+          new = 'return { id: Number(row.id), conversationId: String(row.conversation_id), senderId: Number(row.sender_id), sender: sender ? publicUser(sender) : null, content: row.body, editedAt: null, createdAt: row.created_at, reactions: await reactions(env, row.id) };'
+          if old in s:
+              s = s.replace(old, new)
+              print('patched message conversation ID')
+
+          old = 'return { id: Number(conversationId), participants: participants.results.map((u: any) => publicUser(u)), lastMessage: last ? await messageObject(env, last) : null, unreadCount: Number(unread?.count || 0), createdAt: conv?.created_at, updatedAt: conv?.updated_at };'
+          new = 'return { id: String(conversationId), participants: participants.results.map((u: any) => publicUser(u)), lastMessage: last ? await messageObject(env, last) : null, unreadCount: Number(unread?.count || 0), createdAt: conv?.created_at, updatedAt: conv?.updated_at };'
+          if old in s:
+              s = s.replace(old, new)
+              print('patched conversation ID response')
+
+          p.write_text(s)
           PY
 
       - name: Commit Worker fix
@@ -58,5 +66,5 @@ jobs:
             echo "No Worker changes to commit."
             exit 0
           fi
-          git commit -m "Fix messaging participant ID precision"
+          git commit -m "Fix conversation ID precision"
           git push origin main
