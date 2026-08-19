@@ -1,34 +1,20 @@
 import { useState } from "react";
 import { Message, useDeleteMessage, useEditMessage, useAddReaction, useRemoveReaction, useGetMe, getGetMeQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { formatTime } from "@/lib/utils";
+import { formatTime, getInitials } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { getInitials } from "@/lib/utils";
+import { getUnlockedBadges } from "@/lib/achievements";
 import { Pencil, Trash2, SmilePlus, X, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const COMMON_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
-// Detect whether message content is a media URL to render inline
 function getMediaType(content: string): "image" | "gif" | "sticker" | "text" {
   const trimmed = content.trim();
-
-  // Single emoji / sticker
   const isSingleEmoji = /^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F)(\u200D(\p{Emoji_Presentation}|\p{Emoji}\uFE0F))*$/u.test(trimmed);
   if (isSingleEmoji) return "sticker";
-
-  // GIF URL (Giphy, Tenor, or .gif extension)
-  if (
-    /^https?:\/\/.+\.gif(\?.*)?$/i.test(trimmed) ||
-    trimmed.includes("giphy.com/media/") ||
-    trimmed.includes("media.tenor.com/") ||
-    trimmed.includes("media1.tenor.com/") ||
-    trimmed.includes("media2.tenor.com/")
-  ) return "gif";
-
-  // Generic image URL
+  if (/^https?:\/\/.+\.gif(\?.*)?$/i.test(trimmed) || trimmed.includes("giphy.com/media/") || trimmed.includes("media.tenor.com/") || trimmed.includes("media1.tenor.com/") || trimmed.includes("media2.tenor.com/")) return "gif";
   if (/^https?:\/\/.+\.(jpg|jpeg|png|webp|svg|avif)(\?.*)?$/i.test(trimmed)) return "image";
-
   return "text";
 }
 
@@ -36,239 +22,47 @@ export function MessageBubble({ message, isOwn, showAvatar }: { message: Message
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
-  
   const queryClient = useQueryClient();
-  // Read from cache only — prevents re-fetching auth on every bubble render.
   const { data: currentUser } = useGetMe({ query: { staleTime: Infinity, refetchOnWindowFocus: false, queryKey: getGetMeQueryKey() } });
-  
   const deleteMessage = useDeleteMessage();
   const editMessage = useEditMessage();
   const addReaction = useAddReaction();
   const removeReaction = useRemoveReaction();
+  const senderBadges = message.sender?.username ? getUnlockedBadges(message.sender.username) : [];
 
   const handleEdit = () => {
-    if (!editContent.trim() || editContent === message.content) {
-      setIsEditing(false);
-      return;
-    }
-    editMessage.mutate(
-      { conversationId: message.conversationId, messageId: message.id, data: { content: editContent } },
-      {
-        onSuccess: () => {
-          setIsEditing(false);
-          queryClient.invalidateQueries({ queryKey: [`/api/conversations/${message.conversationId}/messages`] });
-        }
-      }
-    );
+    if (!editContent.trim() || editContent === message.content) { setIsEditing(false); return; }
+    editMessage.mutate({ conversationId: message.conversationId, messageId: message.id, data: { content: editContent } }, { onSuccess: () => { setIsEditing(false); queryClient.invalidateQueries({ queryKey: [`/api/conversations/${message.conversationId}/messages`] }); } });
   };
-
   const handleDelete = () => {
-    if (confirm("Are you sure you want to delete this message?")) {
-      deleteMessage.mutate(
-        { conversationId: message.conversationId, messageId: message.id },
-        {
-          onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: [`/api/conversations/${message.conversationId}/messages`] });
-            queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
-          }
-        }
-      );
-    }
+    if (confirm("Are you sure you want to delete this message?")) deleteMessage.mutate({ conversationId: message.conversationId, messageId: message.id }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: [`/api/conversations/${message.conversationId}/messages`] }); queryClient.invalidateQueries({ queryKey: ["/api/conversations"] }); } });
   };
-
   const toggleReaction = (emoji: string) => {
     const hasReacted = message.reactions.some(r => r.emoji === emoji && currentUser && r.userIds.includes(currentUser.id));
-    if (hasReacted) {
-      removeReaction.mutate(
-        { conversationId: message.conversationId, messageId: message.id, emoji },
-        {
-          onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: [`/api/conversations/${message.conversationId}/messages`] });
-          }
-        }
-      );
-    } else {
-      addReaction.mutate(
-        { conversationId: message.conversationId, messageId: message.id, data: { emoji } },
-        {
-          onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: [`/api/conversations/${message.conversationId}/messages`] });
-          }
-        }
-      );
-    }
+    if (hasReacted) removeReaction.mutate({ conversationId: message.conversationId, messageId: message.id, emoji }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: [`/api/conversations/${message.conversationId}/messages`] }) });
+    else addReaction.mutate({ conversationId: message.conversationId, messageId: message.id, data: { emoji } }, { onSuccess: () => queryClient.invalidateQueries({ queryKey: [`/api/conversations/${message.conversationId}/messages`] }) });
   };
 
-  return (
-    <div 
-      className={`flex items-end gap-2 w-full group ${isOwn ? "flex-row-reverse" : "flex-row"}`}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
-      {/* Avatar */}
-      <div className="w-8 flex-shrink-0">
-        {!isOwn && showAvatar && (
-          <Avatar className="w-8 h-8 select-none">
-            <AvatarImage src={message.sender?.avatarUrl || ""} />
-            <AvatarFallback className="text-[10px]">{getInitials(message.sender?.displayName || "?")}</AvatarFallback>
-          </Avatar>
-        )}
-      </div>
-
-      <div className={`flex flex-col gap-1 max-w-[70%] ${isOwn ? "items-end" : "items-start"}`}>
-        {/* Name (if group chat / first message) */}
-        {!isOwn && showAvatar && (
-          <span className="text-xs text-muted-foreground ml-1">
-            {message.sender?.displayName}
-          </span>
-        )}
-
-        <div className="flex items-center gap-2 w-full group/actions">
-          {/* Actions (Left side for own messages) */}
-          {isOwn && isHovered && !isEditing && (
-            <div className="flex items-center gap-1 opacity-0 group-hover/actions:opacity-100 transition-opacity mr-1">
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => setIsEditing(true)}>
-                <Pencil className="w-3.5 h-3.5" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={handleDelete}>
-                <Trash2 className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-          )}
-
-          {/* Bubble */}
-          <div className="relative group/bubble">
-            {isEditing ? (
-              <div className="flex items-center gap-2 bg-secondary p-2 rounded-2xl">
-                <input 
-                  autoFocus
-                  value={editContent}
-                  onChange={e => setEditContent(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleEdit();
-                    }
-                    if (e.key === 'Escape') {
-                      setIsEditing(false);
-                      setEditContent(message.content);
-                    }
-                  }}
-                  className="bg-transparent border-none outline-none text-sm text-foreground min-w-[200px]"
-                />
-                <Button size="icon" variant="ghost" className="h-6 w-6 text-green-500 hover:text-green-400" onClick={handleEdit}>
-                  <Check className="w-4 h-4" />
-                </Button>
-                <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => {
-                  setIsEditing(false);
-                  setEditContent(message.content);
-                }}>
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
-            ) : (() => {
-              const mediaType = getMediaType(message.content);
-
-              if (mediaType === "sticker") {
-                return (
-                  <div className="relative select-none">
-                    <span className="text-5xl leading-none">{message.content.trim()}</span>
-                    <div className={`text-[10px] mt-1 flex items-center ${isOwn ? "justify-end" : "justify-start"} gap-1 opacity-50 text-muted-foreground`}>
-                      {message.editedAt && <span>(edited)</span>}
-                      <span>{formatTime(message.createdAt)}</span>
-                    </div>
-                  </div>
-                );
-              }
-
-              if (mediaType === "image" || mediaType === "gif") {
-                return (
-                  <div className="relative">
-                    <div className={`rounded-2xl overflow-hidden max-w-[260px] ${isOwn ? "rounded-br-sm" : "rounded-bl-sm"}`}>
-                      <img
-                        src={message.content.trim()}
-                        alt={mediaType === "gif" ? "GIF" : "Image"}
-                        className="w-full object-cover block"
-                        loading="lazy"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = "none";
-                        }}
-                      />
-                    </div>
-                    <div className={`text-[10px] mt-1 flex items-center ${isOwn ? "justify-end" : "justify-start"} gap-1 opacity-50 text-muted-foreground`}>
-                      {message.editedAt && <span>(edited)</span>}
-                      <span>{formatTime(message.createdAt)}</span>
-                    </div>
-                  </div>
-                );
-              }
-
-              return (
-                <div 
-                  className={`px-4 py-2.5 rounded-2xl text-[15px] leading-relaxed relative ${
-                    isOwn 
-                      ? "bg-primary text-primary-foreground rounded-br-sm" 
-                      : "bg-secondary text-foreground rounded-bl-sm"
-                  }`}
-                >
-                  <p className="whitespace-pre-wrap break-words">{message.content}</p>
-                  <div className={`text-[10px] mt-1 flex items-center justify-end gap-1.5 opacity-60 ${isOwn ? "text-primary-foreground" : "text-muted-foreground"}`}>
-                    {message.editedAt && <span>(edited)</span>}
-                    <span>{formatTime(message.createdAt)}</span>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Hover Reaction Picker */}
-            {!isEditing && isHovered && (
-              <div className={`absolute -top-10 ${isOwn ? "right-0" : "left-0"} bg-card border border-border shadow-xl rounded-full px-2 py-1.5 flex items-center gap-1 z-20 animate-in fade-in zoom-in-95 duration-100`}>
-                {COMMON_EMOJIS.map(emoji => (
-                  <button 
-                    key={emoji}
-                    onClick={() => toggleReaction(emoji)}
-                    className="hover:bg-secondary p-1 rounded-full text-lg transition-transform hover:scale-125"
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Actions (Right side for other's messages) */}
-          {!isOwn && isHovered && !isEditing && (
-            <div className="flex items-center gap-1 opacity-0 group-hover/actions:opacity-100 transition-opacity ml-1">
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground">
-                <SmilePlus className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-          )}
+  return <div className={`flex items-end gap-2 w-full group ${isOwn ? "flex-row-reverse" : "flex-row"}`} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
+    <div className="w-8 flex-shrink-0">{!isOwn && showAvatar && <Avatar className="w-8 h-8 select-none"><AvatarImage src={message.sender?.avatarUrl || ""} /><AvatarFallback className="text-[10px]">{getInitials(message.sender?.displayName || "?")}</AvatarFallback></Avatar>}</div>
+    <div className={`flex flex-col gap-1 max-w-[70%] ${isOwn ? "items-end" : "items-start"}`}>
+      {!isOwn && showAvatar && <div className="flex items-center gap-1.5 ml-1 max-w-full">
+        <span className="text-xs text-muted-foreground truncate">{message.sender?.displayName}</span>
+        {senderBadges.map(badge => <span key={badge.id} title={badge.name} aria-label={badge.name} className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-yellow-400/15 border border-yellow-400/30 text-[11px] shadow-sm">{badge.badge}</span>)}
+      </div>}
+      <div className="flex items-center gap-2 w-full group/actions">
+        {isOwn && isHovered && !isEditing && <div className="flex items-center gap-1 opacity-0 group-hover/actions:opacity-100 transition-opacity mr-1"><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => setIsEditing(true)}><Pencil className="w-3.5 h-3.5" /></Button><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={handleDelete}><Trash2 className="w-3.5 h-3.5" /></Button></div>}
+        <div className="relative group/bubble">{isEditing ? <div className="flex items-center gap-2 bg-secondary p-2 rounded-2xl"><input autoFocus value={editContent} onChange={e => setEditContent(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEdit(); } if (e.key === 'Escape') { setIsEditing(false); setEditContent(message.content); } }} className="bg-transparent border-none outline-none text-sm text-foreground min-w-[200px]" /><Button size="icon" variant="ghost" className="h-6 w-6 text-green-500" onClick={handleEdit}><Check className="w-4 h-4" /></Button><Button size="icon" variant="ghost" className="h-6 w-6 text-destructive" onClick={() => { setIsEditing(false); setEditContent(message.content); }}><X className="w-4 h-4" /></Button></div> : (() => {
+          const mediaType = getMediaType(message.content);
+          if (mediaType === "sticker") return <div className="relative select-none"><span className="text-5xl leading-none">{message.content.trim()}</span><div className={`text-[10px] mt-1 flex items-center ${isOwn ? "justify-end" : "justify-start"} gap-1 opacity-50 text-muted-foreground`}>{message.editedAt && <span>(edited)</span>}<span>{formatTime(message.createdAt)}</span></div></div>;
+          if (mediaType === "image" || mediaType === "gif") return <div className="relative"><div className={`rounded-2xl overflow-hidden max-w-[260px] ${isOwn ? "rounded-br-sm" : "rounded-bl-sm"}`}><img src={message.content.trim()} alt={mediaType === "gif" ? "GIF" : "Image"} className="w-full object-cover block" loading="lazy" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} /></div><div className={`text-[10px] mt-1 flex items-center ${isOwn ? "justify-end" : "justify-start"} gap-1 opacity-50 text-muted-foreground`}>{message.editedAt && <span>(edited)</span>}<span>{formatTime(message.createdAt)}</span></div></div>;
+          return <div className={`px-4 py-2.5 rounded-2xl text-[15px] leading-relaxed relative ${isOwn ? "bg-primary text-primary-foreground rounded-br-sm" : "bg-secondary text-foreground rounded-bl-sm"}`}><p className="whitespace-pre-wrap break-words">{message.content}</p><div className={`text-[10px] mt-1 flex items-center justify-end gap-1.5 opacity-60 ${isOwn ? "text-primary-foreground" : "text-muted-foreground"}`}>{message.editedAt && <span>(edited)</span>}<span>{formatTime(message.createdAt)}</span></div></div>;
+        })()}
+        {!isEditing && isHovered && <div className={`absolute -top-10 ${isOwn ? "right-0" : "left-0"} bg-card border border-border shadow-xl rounded-full px-2 py-1.5 flex items-center gap-1 z-20 animate-in fade-in zoom-in-95 duration-100`}>{COMMON_EMOJIS.map(emoji => <button key={emoji} onClick={() => toggleReaction(emoji)} className="hover:bg-secondary p-1 rounded-full text-lg transition-transform hover:scale-125">{emoji}</button>)}</div>}
         </div>
-
-        {/* Reactions Display */}
-        {message.reactions && message.reactions.length > 0 && (
-          <div className={`flex flex-wrap gap-1 mt-0.5 max-w-full ${isOwn ? "justify-end" : "justify-start"}`}>
-            {message.reactions.map(reaction => {
-              const hasReacted = currentUser && reaction.userIds.includes(currentUser.id);
-              return (
-                <button
-                  key={reaction.emoji}
-                  onClick={() => toggleReaction(reaction.emoji)}
-                  className={`flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-full border transition-colors ${
-                    hasReacted 
-                      ? "bg-primary/20 border-primary/30 text-primary" 
-                      : "bg-card border-border hover:bg-secondary text-muted-foreground"
-                  }`}
-                >
-                  <span>{reaction.emoji}</span>
-                  <span className="font-semibold">{reaction.count}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+        {!isOwn && isHovered && !isEditing && <div className="flex items-center gap-1 opacity-0 group-hover/actions:opacity-100 transition-opacity ml-1"><Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground"><SmilePlus className="w-3.5 h-3.5" /></Button></div>}
       </div>
+      {message.reactions && message.reactions.length > 0 && <div className={`flex flex-wrap gap-1 mt-0.5 max-w-full ${isOwn ? "justify-end" : "justify-start"}`}>{message.reactions.map(reaction => { const hasReacted = currentUser && reaction.userIds.includes(currentUser.id); return <button key={reaction.emoji} onClick={() => toggleReaction(reaction.emoji)} className={`flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-full border transition-colors ${hasReacted ? "bg-primary/20 border-primary/30 text-primary" : "bg-card border-border hover:bg-secondary text-muted-foreground"}`}><span>{reaction.emoji}</span><span className="font-semibold">{reaction.count}</span></button>; })}</div>}
     </div>
-  );
+  </div>;
 }
