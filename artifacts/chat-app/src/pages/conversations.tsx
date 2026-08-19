@@ -90,7 +90,7 @@ function StartChatPanel() {
             key={user.id}
             onClick={() => startChat(user.id)}
             disabled={createConversation.isPending}
-            className="flex items-center gap-4 w-full px-4 py-3 rounded-xl hover:bg-secondary/50 transition-all text-left group disabled:opacity-60"
+            className="cursor-pointer flex items-center gap-4 w-full px-4 py-3 rounded-xl hover:bg-secondary/50 transition-all text-left group disabled:opacity-60 disabled:cursor-not-allowed"
           >
             <div className="relative flex-shrink-0">
               <Avatar className="w-12 h-12">
