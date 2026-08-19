@@ -1,0 +1,218 @@
+name: Upgrade Pulse Social
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade:
+    if: ${{ !contains(github.event.head_commit.message, 'Apply Pulse Social media upgrade') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Patch Pulse
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" repo
+          cd repo
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          # ---------- Backend ----------
+          p = Path('cloudflare-worker/src/index.ts')
+          s = p.read_text()
+
+          old_post = re.search(r'async function postObject\(env: Env, row: any, me: string\) \{.*?\n\}\n\nexport default', s, re.S)
+          if not old_post:
+              raise SystemExit('postObject block not found')
+          new_post = r'''async function postObject(env: Env, row: any, me: string) {
+  const user = await env.DB.prepare(`SELECT * FROM users WHERE id = ? LIMIT 1`).bind(row.user_id).first<any>();
+  const likes = await env.DB.prepare(`SELECT COUNT(*) AS count FROM post_likes WHERE post_id = ?`).bind(row.id).first<any>();
+  const comments = await env.DB.prepare(`SELECT COUNT(*) AS count FROM post_comments WHERE post_id = ?`).bind(row.id).first<any>();
+  const liked = await env.DB.prepare(`SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ? LIMIT 1`).bind(row.id, me).first<any>();
+  const following = user && String(user.id) !== String(me) ? await env.DB.prepare(`SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ? LIMIT 1`).bind(me, user.id).first<any>() : null;
+  let repostOf: any = null;
+  const repostMatch = String(row.content || '').match(/^\[PULSE_REPOST:([^\]]+)\](?:\n|\s)*(.*)$/s);
+  if (repostMatch) {
+    const original = await env.DB.prepare(`SELECT * FROM posts WHERE id = ? LIMIT 1`).bind(repostMatch[1]).first<any>();
+    if (original) {
+      const originalUser = await env.DB.prepare(`SELECT * FROM users WHERE id = ? LIMIT 1`).bind(original.user_id).first<any>();
+      repostOf = { id: String(original.id), content: original.content, createdAt: original.created_at, user: originalUser ? publicUser(originalUser) : null, image: original.image_url || null, filter: original.filter || 'Normal', music: original.music_url ? { title: original.music_title, artist: original.music_artist, previewUrl: original.music_url } : null };
+    }
+  }
+  const media = (row.image_url || row.music_url || row.filter) ? {
+    image: row.image_url || null,
+    filter: row.filter || 'Normal',
+    music: row.music_url ? { title: row.music_title || 'Unknown track', artist: row.music_artist || '', previewUrl: row.music_url } : null
+  } : null;
+  return { id: String(row.id), content: repostMatch ? (repostMatch[2] || '') : row.content, createdAt: row.created_at, user: user ? publicUser(user) : null, likeCount: Number(likes?.count || 0), commentCount: Number(comments?.count || 0), liked: !!liked, following: !!following, media, repostOf };
+}
+
+export default'''
+          s = s[:old_post.start()] + new_post + s[old_post.end():]
+
+          old_feed = re.search(r'      if \(path === "/api/feed" && request\.method === "GET"\) \{.*?\n      \}\n\n      if \(path === "/api/posts"', s, re.S)
+          if not old_feed:
+              raise SystemExit('feed route not found')
+          new_feed = r'''      if (path === "/api/feed" && request.method === "GET") {
+        const mode = url.searchParams.get("mode") || "for-you";
+        let rows;
+        if (mode === "following") {
+          rows = await env.DB.prepare(`SELECT p.* FROM posts p WHERE p.user_id = ? OR p.user_id IN (SELECT following_id FROM follows WHERE follower_id = ?) ORDER BY p.created_at DESC LIMIT 50`).bind(me.id, me.id).all<any>();
+        } else if (mode === "popular") {
+          rows = await env.DB.prepare(`SELECT p.*, (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) AS like_score, (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) AS comment_score FROM posts p ORDER BY like_score DESC, comment_score DESC, p.created_at DESC LIMIT 50`).all<any>();
+        } else {
+          rows = await env.DB.prepare(`SELECT p.* FROM posts p ORDER BY p.created_at DESC LIMIT 50`).all<any>();
+        }
+        const result = await Promise.all(rows.results.map((row: any) => postObject(env, row, String(me.id))));
+        return json(result, 200, request, env);
+      }
+
+      if (path === "/api/posts"'''
+          s = s[:old_feed.start()] + new_feed + s[old_feed.end():]
+
+          old_create = re.search(r'      if \(path === "/api/posts" && request\.method === "POST"\) \{.*?\n      \}\n\n      const postLikeMatch', s, re.S)
+          if not old_create:
+              raise SystemExit('post create route not found')
+          new_create = r'''      if (path === "/api/posts" && request.method === "POST") {
+        const body = await parseBody(request);
+        const content = String(body.content || "").trim();
+        const imageUrl = body.imageUrl ? String(body.imageUrl) : null;
+        const musicUrl = body.musicUrl ? String(body.musicUrl) : null;
+        const musicTitle = body.musicTitle ? String(body.musicTitle).slice(0, 200) : null;
+        const musicArtist = body.musicArtist ? String(body.musicArtist).slice(0, 200) : null;
+        const filter = body.filter ? String(body.filter).slice(0, 80) : null;
+        if (!content && !imageUrl && !musicUrl) return error("Post cannot be empty", 400, request, env);
+        if (content.length > 500) return error("Post text is limited to 500 characters", 400, request, env);
+        if (imageUrl && imageUrl.length > 1200000) return error("That photo is too large. Please choose a smaller image.", 400, request, env);
+        if (imageUrl && !/^data:image\/(jpeg|jpg|png|webp|gif);base64,/i.test(imageUrl)) return error("Invalid image", 400, request, env);
+        const postId = id(); const now = new Date().toISOString();
+        await env.DB.prepare(`INSERT INTO posts (id, user_id, content, image_url, music_url, music_title, music_artist, filter, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(postId, me.id, content, imageUrl, musicUrl, musicTitle, musicArtist, filter, now, now).run();
+        const post = await env.DB.prepare(`SELECT * FROM posts WHERE id = ?`).bind(postId).first<any>();
+        return json(await postObject(env, post, String(me.id)), 201, request, env);
+      }
+
+      const repostMatch = path.match(/^\/api\/posts\/([^/]+)\/repost$/);
+      if (repostMatch && request.method === "POST") {
+        const originalId = repostMatch[1];
+        const original = await env.DB.prepare(`SELECT id FROM posts WHERE id = ? LIMIT 1`).bind(originalId).first<any>();
+        if (!original) return error("Post not found", 404, request, env);
+        const body = await parseBody(request); const caption = String(body.caption || "").trim().slice(0, 500);
+        const postId = id(); const now = new Date().toISOString();
+        await env.DB.prepare(`INSERT INTO posts (id, user_id, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`).bind(postId, me.id, `[PULSE_REPOST:${originalId}]${caption ? `\\n${caption}` : ''}`, now, now).run();
+        const post = await env.DB.prepare(`SELECT * FROM posts WHERE id = ?`).bind(postId).first<any>();
+        return json(await postObject(env, post, String(me.id)), 201, request, env);
+      }
+
+      const postLikeMatch'''
+          s = s[:old_create.start()] + new_create + s[old_create.end():]
+
+          p.write_text(s)
+
+          # ---------- App routing ----------
+          p = Path('artifacts/chat-app/src/App.tsx')
+          s = p.read_text()
+          s = s.replace('import Feed from "@/pages/feed";', 'import Feed from "@/pages/feed";\nimport Home from "@/pages/home";')
+          s = s.replace('<Route path="/feed" component={() => <ProtectedRoute component={Feed} />} />', '<Route path="/feed" component={() => <ProtectedRoute component={Home} />} />\n                <Route path="/social" component={() => <ProtectedRoute component={Feed} />} />')
+          s = s.replace('if (isAuthenticated) return <Redirect to="/feed" />;', 'if (isAuthenticated) return <Redirect to="/feed" />;')
+          p.write_text(s)
+
+          # ---------- Navigation ----------
+          p = Path('artifacts/chat-app/src/components/layout/app-layout.tsx')
+          s = p.read_text()
+          s = s.replace('import { MessageSquare, Users, Search, User as UserIcon, LogOut, Zap, Sun, Moon, Home }', 'import { MessageSquare, Users, Search, User as UserIcon, LogOut, Zap, Sun, Moon, Home as HomeIcon, Sparkles }')
+          s = s.replace('{ href: "/feed", icon: Home, label: "Home" },', '{ href: "/feed", icon: HomeIcon, label: "Home" },\n    { href: "/social", icon: Sparkles, label: "Pulse Social" },')
+          p.write_text(s)
+
+          # ---------- Home: popular posts ----------
+          Path('artifacts/chat-app/src/pages/home.tsx').write_text(r'''import { useCallback, useEffect, useState } from "react";
+import { Heart, MessageCircle, Repeat2, RefreshCw, Loader2, TrendingUp, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Link } from "wouter";
+import { getInitials } from "@/lib/utils";
+
+const API = "https://pulse-api.joeldavidengelman.workers.dev";
+async function api(path: string) { const r = await fetch(`${API}${path}`, { credentials: "include" }); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`); return d; }
+function ago(v: string) { const s = Math.max(1, Math.floor((Date.now() - new Date(v).getTime()) / 1000)); if (s < 60) return `${s}s`; if (s < 3600) return `${Math.floor(s/60)}m`; if (s < 86400) return `${Math.floor(s/3600)}h`; return `${Math.floor(s/86400)}d`; }
+
+type Post = any;
+export default function Home() {
+  const [posts, setPosts] = useState<Post[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
+  const load = useCallback(async () => { setLoading(true); setError(""); try { setPosts(await api("/api/feed?mode=popular")); } catch(e:any) { setError(e?.message || "Couldn't load popular posts."); } finally { setLoading(false); } }, []);
+  useEffect(() => { load(); }, [load]);
+  return <div className="w-full h-full overflow-y-auto custom-scrollbar"><div className="max-w-2xl mx-auto px-4 py-7 md:py-10">
+    <div className="flex items-center justify-between mb-7"><div><div className="flex items-center gap-2"><TrendingUp className="w-6 h-6 text-primary"/><h1 className="text-3xl font-bold">Home</h1></div><p className="text-muted-foreground text-sm mt-1">Popular on Pulse right now.</p></div><Button variant="ghost" size="icon" onClick={load} className="cursor-pointer" title="Refresh"><RefreshCw className={`w-5 h-5 ${loading ? "animate-spin" : ""}`}/></Button></div>
+    <Link href="/social" className="block bg-primary/10 border border-primary/20 rounded-2xl p-4 mb-6 hover:bg-primary/15 transition-colors cursor-pointer"><div className="flex items-center gap-3"><Sparkles className="w-5 h-5 text-primary"/><div><p className="font-semibold">Pulse Social</p><p className="text-sm text-muted-foreground">Create posts, share photos, add music, follow people and repost.</p></div></div></Link>
+    {error && <div className="mb-4 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>}
+    {loading ? <div className="flex justify-center py-16"><Loader2 className="w-7 h-7 text-primary animate-spin"/></div> : posts.length === 0 ? <div className="bg-card border border-border rounded-2xl p-10 text-center text-muted-foreground">No popular posts yet. Be the first!</div> : posts.map((p:Post) => <article key={p.id} className="bg-card border border-border rounded-2xl p-4 mb-4 shadow-sm"><div className="flex items-center gap-3"><Avatar className="w-10 h-10"><AvatarImage src={p.user?.avatarUrl || ""}/><AvatarFallback>{getInitials(p.user?.displayName || "?")}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><p className="font-semibold truncate">{p.user?.displayName}</p><p className="text-xs text-muted-foreground">@{p.user?.username} · {ago(p.createdAt)}</p></div></div><p className="whitespace-pre-wrap mt-4 text-sm leading-6">{p.content}</p>{p.media?.image && <img src={p.media.image} className="mt-3 rounded-xl max-h-[380px] w-full object-cover" style={{filter:p.media.filter || "none"}}/>}{p.repostOf && <div className="mt-3 rounded-xl border border-border bg-background/50 p-3"><p className="text-xs text-muted-foreground mb-1">Reposted from @{p.repostOf.user?.username}</p><p className="text-sm whitespace-pre-wrap">{p.repostOf.content}</p>{p.repostOf.image && <img src={p.repostOf.image} className="mt-2 rounded-lg max-h-60 w-full object-cover"/>}</div>}<div className="flex items-center gap-5 mt-4 text-sm text-muted-foreground"><span className="inline-flex items-center gap-1"><Heart className="w-4 h-4"/> {p.likeCount || 0}</span><span className="inline-flex items-center gap-1"><MessageCircle className="w-4 h-4"/> {p.commentCount || 0}</span><span className="inline-flex items-center gap-1"><Repeat2 className="w-4 h-4"/> Reposts</span></div></article>)}
+  </div></div>;
+}
+''')
+
+          # ---------- Social feed UI ----------
+          Path('artifacts/chat-app/src/pages/feed.tsx').write_text(r'''import { useCallback, useEffect, useMemo, useState } from "react";
+import { Heart, MessageCircle, Repeat2, Send, Loader2, UserPlus, UserCheck, RefreshCw, ImagePlus, Music2, X, SlidersHorizontal, Search, Play, Pause } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { getInitials } from "@/lib/utils";
+
+const API = "https://pulse-api.joeldavidengelman.workers.dev";
+const filters = [["Normal","none"],["Mono","grayscale(1)"],["Warm","sepia(.35) saturate(1.25)"],["Cool","saturate(.8) hue-rotate(25deg)"],["Fade","contrast(.88) brightness(1.08) saturate(.72)"],["Vivid","contrast(1.15) saturate(1.35)"]] as const;
+async function api(path:string, options:RequestInit={}) { const r=await fetch(`${API}${path}`,{...options,credentials:"include",headers:{"Content-Type":"application/json",...(options.headers||{})}}); const d=await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||`HTTP ${r.status}`); return d; }
+function ago(v:string){const s=Math.max(1,Math.floor((Date.now()-new Date(v).getTime())/1000));if(s<60)return `${s}s`;if(s<3600)return `${Math.floor(s/60)}m`;if(s<86400)return `${Math.floor(s/3600)}h`;return `${Math.floor(s/86400)}d`;}
+async function imageData(file:File){if(!file.type.startsWith("image/"))throw new Error("Please choose an image file.");const b=await createImageBitmap(file);const max=1400,scale=Math.min(1,max/Math.max(b.width,b.height));const c=document.createElement("canvas");c.width=Math.max(1,Math.round(b.width*scale));c.height=Math.max(1,Math.round(b.height*scale));const x=c.getContext("2d");if(!x)throw new Error("Couldn't prepare that image.");x.drawImage(b,0,0,c.width,c.height);return c.toDataURL("image/jpeg",.78);}
+
+type Track={trackName:string;artistName:string;previewUrl?:string;artworkUrl100?:string};
+export default function Feed(){
+ const [posts,setPosts]=useState<any[]>([]),[mode,setMode]=useState<"for-you"|"following">("for-you"),[draft,setDraft]=useState(""),[image,setImage]=useState(""),[filter,setFilter]=useState("Normal"),[music,setMusic]=useState<any>(null),[showMusic,setShowMusic]=useState(false),[query,setQuery]=useState(""),[tracks,setTracks]=useState<Track[]>([]),[playing,setPlaying]=useState(""),[audio]=useState(()=>new Audio()),[loading,setLoading]=useState(true),[posting,setPosting]=useState(false),[error,setError]=useState("");
+ const load=useCallback(async()=>{setLoading(true);setError("");try{setPosts(await api(`/api/feed?mode=${mode}`));}catch(e:any){setError(e?.message||"Couldn't load Pulse Social.");}finally{setLoading(false);}},[mode]); useEffect(()=>{load();},[load]); useEffect(()=>()=>audio.pause(),[audio]);
+ const searchMusic=async()=>{if(!query.trim())return;try{const r=await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&entity=song&limit=15`);const d=await r.json();setTracks((d.results||[]).filter((x:Track)=>x.previewUrl));}catch{setError("Couldn't search the music library.");}};
+ const preview=(t:Track)=>{if(!t.previewUrl)return;if(playing===t.previewUrl){audio.pause();setPlaying("");return;}audio.src=t.previewUrl;audio.play().catch(()=>{});setPlaying(t.previewUrl);audio.onended=()=>setPlaying("");};
+ const create=async(e:React.FormEvent)=>{e.preventDefault();if((!draft.trim()&&!image&&!music)||posting)return;setPosting(true);setError("");try{const p=await api("/api/posts",{method:"POST",body:JSON.stringify({content:draft.trim(),imageUrl:image||null,musicUrl:music?.previewUrl||null,musicTitle:music?.title||null,musicArtist:music?.artist||null,filter:image?filter:null})});setPosts(x=>[p,...x]);setDraft("");setImage("");setMusic(null);setFilter("Normal");}catch(e:any){setError(e?.message||"Couldn't create the post.");}finally{setPosting(false);}};
+ const like=async(p:any)=>{try{const d=await api(`/api/posts/${p.id}/like`,{method:p.liked?"DELETE":"POST"});setPosts(x=>x.map(q=>q.id===p.id?{...q,...d}:q));}catch(e:any){setError(e.message)}};
+ const follow=async(p:any)=>{try{const d=await api(`/api/users/${p.user.id}/follow`,{method:p.following?"DELETE":"POST"});setPosts(x=>x.map(q=>q.user?.id===p.user?.id?{...q,following:d.following}:q));}catch(e:any){setError(e.message)}};
+ const repost=async(p:any)=>{try{const d=await api(`/api/posts/${p.id}/repost`,{method:"POST",body:JSON.stringify({})});setPosts(x=>[d,...x]);}catch(e:any){setError(e?.message||"Couldn't repost that.");}};
+ const comments=async(p:any)=>{if(p.comments){setPosts(x=>x.map(q=>q.id===p.id?{...q,comments:undefined}:q));return;}try{const d=await api(`/api/posts/${p.id}/comments`);setPosts(x=>x.map(q=>q.id===p.id?{...q,comments:d}:q));}catch(e:any){setError(e.message)}};
+ const addComment=async(p:any,text:string)=>{if(!text.trim())return;try{const d=await api(`/api/posts/${p.id}/comments`,{method:"POST",body:JSON.stringify({content:text})});setPosts(x=>x.map(q=>q.id===p.id?{...q,comments:[...(q.comments||[]),d],commentCount:(q.commentCount||0)+1}:q));}catch(e:any){setError(e.message)}};
+ const filterValue=useMemo(()=>filters.find(x=>x[0]===filter)?.[1]||"none",[filter]);
+ return <div className="w-full h-full overflow-y-auto custom-scrollbar"><div className="max-w-2xl mx-auto px-4 py-6 md:py-8"><div className="flex items-center justify-between mb-5"><div><h1 className="text-3xl font-bold">Pulse Social</h1><p className="text-sm text-muted-foreground mt-1">Post, share, follow and discover.</p></div><Button variant="ghost" size="icon" onClick={load} className="cursor-pointer"><RefreshCw className={`w-5 h-5 ${loading?"animate-spin":""}`}/></Button></div>
+ <div className="flex gap-2 mb-5 bg-card border border-border rounded-xl p-1"><button onClick={()=>setMode("for-you")} className={`cursor-pointer flex-1 rounded-lg py-2 text-sm font-semibold ${mode==="for-you"?"bg-primary text-primary-foreground":"text-muted-foreground hover:bg-secondary"}`}>For You</button><button onClick={()=>setMode("following")} className={`cursor-pointer flex-1 rounded-lg py-2 text-sm font-semibold ${mode==="following"?"bg-primary text-primary-foreground":"text-muted-foreground hover:bg-secondary"}`}>Following</button></div>
+ <form onSubmit={create} className="bg-card border border-border rounded-2xl p-4 mb-5"><Textarea value={draft} onChange={e=>setDraft(e.target.value)} maxLength={500} placeholder="What's happening?" className="min-h-[90px] resize-none border-0 bg-background/40"/>
+ {image&&<div className="relative mt-3"><img src={image} className="w-full max-h-[420px] object-cover rounded-xl" style={{filter:filterValue}}/><button type="button" onClick={()=>setImage("")} className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1.5 cursor-pointer"><X className="w-4 h-4"/></button></div>}
+ {music&&<div className="mt-3 flex items-center gap-3 rounded-xl bg-secondary/70 p-3"><img src={music.artwork||""} className="w-12 h-12 rounded-lg"/><div className="min-w-0 flex-1"><p className="font-semibold text-sm truncate">{music.title}</p><p className="text-xs text-muted-foreground truncate">{music.artist} · preview</p></div><button type="button" onClick={()=>setMusic(null)} className="cursor-pointer"><X className="w-4 h-4"/></button></div>}
+ <div className="flex flex-wrap items-center gap-2 mt-3"><label className="cursor-pointer inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-secondary"><ImagePlus className="w-4 h-4"/> Photo<input type="file" accept="image/*" className="hidden" onChange={async e=>{const f=e.target.files?.[0];if(!f)return;try{setImage(await imageData(f));}catch(err:any){setError(err.message);}e.currentTarget.value="";}}/></label><button type="button" onClick={()=>setShowMusic(v=>!v)} className="cursor-pointer inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-secondary"><Music2 className="w-4 h-4"/> Music</button>{image&&<div className="relative"><button type="button" onClick={()=>document.getElementById("filters")?.classList.toggle("hidden")} className="cursor-pointer inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-secondary"><SlidersHorizontal className="w-4 h-4"/> Filter</button><div id="filters" className="hidden absolute z-20 bottom-full mb-2 bg-card border border-border rounded-xl p-2 shadow-xl"><div className="grid grid-cols-3 gap-2">{filters.map(([n,v])=><button type="button" key={n} onClick={()=>setFilter(n)} className={`cursor-pointer rounded-lg p-1 text-xs ${filter===n?"bg-primary text-primary-foreground":"hover:bg-secondary"}`}><div className="h-12 w-16 rounded-md bg-secondary" style={{filter:v}}/>{n}</button>)}</div></div></div>}<span className="text-xs text-muted-foreground ml-auto">{draft.length}/500</span><Button type="submit" disabled={posting||(!draft.trim()&&!image&&!music)} variant="glow" className="cursor-pointer">{posting?<Loader2 className="w-4 h-4 mr-2 animate-spin"/>:<Send className="w-4 h-4 mr-2"/>}Post</Button></div>
+ {showMusic&&<div className="mt-3 border border-border rounded-xl p-3"><div className="flex gap-2"><Input value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();searchMusic();}}} placeholder="Search songs or artists..."/><Button type="button" size="icon" onClick={searchMusic} className="cursor-pointer"><Search className="w-4 h-4"/></Button></div><p className="text-[11px] text-muted-foreground mt-2">Music comes from Apple's iTunes catalogue and uses short preview clips.</p><div className="max-h-64 overflow-y-auto mt-2">{tracks.map(t=><div key={`${t.trackName}-${t.artistName}`} className="flex items-center gap-2 p-2 rounded-lg hover:bg-secondary"><img src={t.artworkUrl100||""} className="w-10 h-10 rounded"/><div className="min-w-0 flex-1"><p className="text-sm truncate">{t.trackName}</p><p className="text-xs text-muted-foreground truncate">{t.artistName}</p></div><button type="button" onClick={()=>preview(t)} className="cursor-pointer p-2">{playing===t.previewUrl?<Pause className="w-4 h-4"/>:<Play className="w-4 h-4"/>}</button><button type="button" onClick={()=>{setMusic({title:t.trackName,artist:t.artistName,previewUrl:t.previewUrl,artwork:t.artworkUrl100});setShowMusic(false);audio.pause();setPlaying("");}} className="cursor-pointer text-xs font-semibold text-primary">Add</button></div>)}</div></div>}
+ </form>
+ {error&&<div className="mb-4 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>}
+ {loading?<div className="flex justify-center py-16"><Loader2 className="w-7 h-7 text-primary animate-spin"/></div>:posts.map(p=><article key={p.id} className="bg-card border border-border rounded-2xl p-4 mb-4"><div className="flex items-center gap-3"><Avatar className="w-10 h-10"><AvatarImage src={p.user?.avatarUrl||""}/><AvatarFallback>{getInitials(p.user?.displayName||"?")}</AvatarFallback></Avatar><div className="min-w-0 flex-1"><p className="font-semibold truncate">{p.user?.displayName}</p><p className="text-xs text-muted-foreground">@{p.user?.username} · {ago(p.createdAt)}</p></div>{p.user&&<button onClick={()=>follow(p)} className="cursor-pointer text-xs font-semibold text-primary inline-flex items-center gap-1">{p.following?<><UserCheck className="w-4 h-4"/> Following</>:<><UserPlus className="w-4 h-4"/> Follow</>}</button>}</div>{p.content&&<p className="whitespace-pre-wrap mt-4 text-sm leading-6">{p.content}</p>}{p.media?.image&&<img src={p.media.image} className="mt-3 w-full max-h-[520px] object-cover rounded-xl" style={{filter:p.media.filter||"none"}}/>}{p.media?.music&&<div className="mt-3 flex items-center gap-3 bg-secondary/70 rounded-xl p-3"><img src={p.media.music.artwork||""} className="w-12 h-12 rounded-lg"/><div className="min-w-0"><p className="font-semibold text-sm truncate">{p.media.music.title}</p><p className="text-xs text-muted-foreground">{p.media.music.artist}</p></div><audio controls preload="none" src={p.media.music.previewUrl} className="ml-auto max-w-[180px]"/></div>}{p.repostOf&&<div className="mt-3 rounded-xl border border-border bg-background/50 p-3"><p className="text-xs text-muted-foreground mb-1">Reposted from @{p.repostOf.user?.username}</p><p className="text-sm whitespace-pre-wrap">{p.repostOf.content}</p>{p.repostOf.image&&<img src={p.repostOf.image} className="mt-2 rounded-lg max-h-72 w-full object-cover" style={{filter:p.repostOf.filter||"none"}}/>}</div>}
+ <div className="flex items-center gap-5 mt-4"><button onClick={()=>like(p)} className={`cursor-pointer inline-flex items-center gap-1.5 text-sm ${p.liked?"text-red-500":"text-muted-foreground hover:text-foreground"}`}><Heart className={`w-4 h-4 ${p.liked?"fill-current":""}`}/>{p.likeCount||0}</button><button onClick={()=>comments(p)} className="cursor-pointer inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><MessageCircle className="w-4 h-4"/>{p.commentCount||0}</button><button onClick={()=>repost(p)} className="cursor-pointer inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"><Repeat2 className="w-4 h-4"/>Repost</button></div>
+ {p.comments&&<div className="mt-3 border-t border-border pt-3 space-y-3">{p.comments.map((c:any)=><div key={c.id} className="flex gap-2"><Avatar className="w-7 h-7"><AvatarImage src={c.user?.avatarUrl||""}/><AvatarFallback>{getInitials(c.user?.displayName||"?")}</AvatarFallback></Avatar><div className="bg-secondary/60 rounded-xl px-3 py-2"><p className="text-xs font-semibold">{c.user?.displayName}</p><p className="text-sm whitespace-pre-wrap">{c.content}</p></div></div>)}<CommentBox onSubmit={(text)=>addComment(p,text)}/></div>}</article>)}
+ </div></div>;
+}
+function CommentBox({onSubmit}:{onSubmit:(s:string)=>void}){const [v,setV]=useState("");return <form onSubmit={e=>{e.preventDefault();if(v.trim()){onSubmit(v);setV("");}}} className="flex gap-2"><Input value={v} onChange={e=>setV(e.target.value)} placeholder="Write a comment..."/><Button type="submit" size="sm" className="cursor-pointer">Send</Button></form>}
+''')
+
+          # ---------- Profile photo picker ----------
+          p = Path('artifacts/chat-app/src/pages/profile.tsx')
+          s = p.read_text()
+          s = s.replace('import { useState, useEffect } from "react";', 'import { useState, useEffect } from "react";')
+          s = s.replace('<div className="relative group cursor-pointer">', '<label className="relative group cursor-pointer">')
+          s = s.replace('</div>\n            <div className="text-center">', '<input type="file" accept="image/*" className="hidden" onChange={async (e) => { const file=e.target.files?.[0]; if(!file) return; const bitmap=await createImageBitmap(file); const scale=Math.min(1,700/Math.max(bitmap.width,bitmap.height)); const c=document.createElement("canvas"); c.width=Math.max(1,Math.round(bitmap.width*scale)); c.height=Math.max(1,Math.round(bitmap.height*scale)); const ctx=c.getContext("2d"); if(ctx){ctx.drawImage(bitmap,0,0,c.width,c.height); setAvatarUrl(c.toDataURL("image/jpeg",.8));} e.currentTarget.value=""; }} />\n            </label>\n            <div className="text-center">', 1)
+          s = s.replace('<label className="text-sm font-semibold text-foreground">Avatar URL</label>', '<label className="text-sm font-semibold text-foreground">Avatar URL or upload</label>')
+          s = s.replace('Provide a link to an image. Leave empty to use initials.', 'Paste an image URL, or click your avatar above to upload a photo.')
+          p.write_text(s)
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Apply Pulse Social media upgrade"
+          git push origin main
