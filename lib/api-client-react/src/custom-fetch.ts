@@ -55,9 +55,7 @@ export async function customFetch<T=unknown>(input:RequestInfo|URL,options:Custo
   if(responseType==="json"&&!headers.has("accept"))headers.set("accept",DEFAULT_JSON_ACCEPT);
   if(_authTokenGetter&&!headers.has("authorization")){const token=await _authTokenGetter();if(token)headers.set("authorization",`Bearer ${token}`);}
   const requestInfo={method,url:typeof input==="string"?input:isUrl(input)?input.toString():input.url};
-  // Do not send cross-site cookies to the Cloudflare Worker. The Worker uses bearer/session data
-  // from the response and GitHub Pages cannot share its cookies with workers.dev.
-  const credentials=init.credentials ?? "omit";
+  const credentials=init.credentials ?? "include";
   try {
     const response=await fetch(input,{...init,method,headers,credentials,mode:init.mode ?? "cors"});
     if(!response.ok){const errorData=await parseErrorBody(response,method);throw new ApiError(response,errorData,requestInfo);}
