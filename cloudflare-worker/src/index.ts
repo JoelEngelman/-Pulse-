@@ -9,26 +9,13 @@ const SESSION_DAYS = 30;
 function corsHeaders(request: Request, env: Env): HeadersInit {
   const origin = request.headers.get("Origin");
   const allowed = env.CORS_ORIGIN || "https://joelengelman.github.io";
-  return {
-    "Access-Control-Allow-Origin": origin === allowed ? origin : allowed,
-    "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Allow-Headers": "Content-Type, X-Requested-With, Accept, Authorization",
-    "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-    "Access-Control-Max-Age": "86400",
-    "Vary": "Origin",
-  };
+  return { "Access-Control-Allow-Origin": origin === allowed ? origin : allowed, "Access-Control-Allow-Credentials": "true", "Access-Control-Allow-Headers": "Content-Type, X-Requested-With, Accept, Authorization", "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS", "Access-Control-Max-Age": "86400", "Vary": "Origin" };
 }
-function json(data: unknown, status = 200, request?: Request, env?: Env, extra?: HeadersInit) {
-  const headers = new Headers({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...(extra || {}) });
-  if (request && env) for (const [key, value] of Object.entries(corsHeaders(request, env))) headers.set(key, value);
-  return new Response(JSON.stringify(data), { status, headers });
-}
+function json(data: unknown, status = 200, request?: Request, env?: Env, extra?: HeadersInit) { const headers = new Headers({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", ...(extra || {}) }); if (request && env) for (const [key, value] of Object.entries(corsHeaders(request, env))) headers.set(key, value); return new Response(JSON.stringify(data), { status, headers }); }
 function error(message: string, status: number, request: Request, env: Env) { return json({ error: message }, status, request, env); }
 function parseBody(request: Request): Promise<any> { return request.json().catch(() => ({})); }
 function id(): string { return `${Date.now()}${String(Math.floor(Math.random() * 100)).padStart(2, "0")}`; }
-function publicUser(row: any, online = false) {
-  return { id: Number(row.id), username: row.username, displayName: row.display_name || row.username, avatarUrl: row.avatar_url ?? null, bio: row.bio ?? null, isOnline: online, lastSeen: row.updated_at || row.created_at, createdAt: row.created_at };
-}
+function publicUser(row: any, online = false) { return { id: Number(row.id), username: row.username, displayName: row.display_name || row.username, avatarUrl: row.avatar_url ?? null, bio: row.bio ?? null, isOnline: online, lastSeen: row.updated_at || row.created_at, createdAt: row.created_at }; }
 function getCookie(request: Request, name: string): string | null { const cookie = request.headers.get("Cookie") || ""; const match = cookie.match(new RegExp(`(?:^|;\\s*)${name}=([^;]+)`)); return match ? decodeURIComponent(match[1]) : null; }
 function sessionCookie(value: string, maxAge = SESSION_DAYS * 86400): string { return `${SESSION_COOKIE}=${encodeURIComponent(value)}; Max-Age=${maxAge}; Path=/; HttpOnly; Secure; SameSite=None`; }
 async function hashPassword(password: string, salt: string): Promise<string> { const data = new TextEncoder().encode(password); const key = await crypto.subtle.importKey("raw", data, "PBKDF2", false, ["deriveBits"]); const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: new TextEncoder().encode(salt), iterations: 100_000, hash: "SHA-256" }, key, 256); return Array.from(new Uint8Array(bits)).map((b) => b.toString(16).padStart(2, "0")).join(""); }
@@ -47,7 +34,11 @@ async function postObject(env: Env, row: any, me: string) {
   const comments = await env.DB.prepare(`SELECT COUNT(*) AS count FROM post_comments WHERE post_id = ?`).bind(row.id).first<any>();
   const liked = await env.DB.prepare(`SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ? LIMIT 1`).bind(row.id, me).first<any>();
   const following = user && String(user.id) !== String(me) ? await env.DB.prepare(`SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ? LIMIT 1`).bind(me, user.id).first<any>() : null;
-  return { id: String(row.id), content: row.content, createdAt: row.created_at, user: user ? publicUser(user) : null, likeCount: Number(likes?.count || 0), commentCount: Number(comments?.count || 0), liked: !!liked, following: !!following };
+  let repostOf: any = null;
+  const repostMatch = String(row.content || '').match(/^\[PULSE_REPOST:([^\]]+)\](?:\n|\s)*(.*)$/s);
+  if (repostMatch) { const original = await env.DB.prepare(`SELECT * FROM posts WHERE id = ? LIMIT 1`).bind(repostMatch[1]).first<any>(); if (original) { const originalUser = await env.DB.prepare(`SELECT * FROM users WHERE id = ? LIMIT 1`).bind(original.user_id).first<any>(); repostOf = { id: String(original.id), content: original.content, createdAt: original.created_at, user: originalUser ? publicUser(originalUser) : null, image: original.image_url || null, filter: original.filter || 'Normal', music: original.music_url ? { title: original.music_title, artist: original.music_artist, previewUrl: original.music_url } : null }; } }
+  const media = (row.image_url || row.music_url || row.filter) ? { image: row.image_url || null, filter: row.filter || 'Normal', music: row.music_url ? { title: row.music_title || 'Unknown track', artist: row.music_artist || '', previewUrl: row.music_url } : null } : null;
+  return { id: String(row.id), content: repostMatch ? (repostMatch[2] || '') : row.content, createdAt: row.created_at, user: user ? publicUser(user) : null, likeCount: Number(likes?.count || 0), commentCount: Number(comments?.count || 0), liked: !!liked, following: !!following, media, repostOf };
 }
 
 export default {
@@ -64,80 +55,23 @@ export default {
       const me = await requireUser(request, env); if (!me) return error("Not authenticated", 401, request, env);
       if (path === "/api/users" && request.method === "GET") { const search = (url.searchParams.get("search") || "").trim(); const rows = search ? await env.DB.prepare(`SELECT * FROM users WHERE (lower(username) LIKE lower(?) OR lower(display_name) LIKE lower(?)) ORDER BY username LIMIT 20`).bind(`%${search}%`, `%${search}%`).all<any>() : await env.DB.prepare(`SELECT * FROM users ORDER BY username LIMIT 30`).all<any>(); return json(rows.results.map((u: any) => publicUser(u)), 200, request, env); }
       if (path === "/api/users/me" && request.method === "GET") return json(publicUser(me, true), 200, request, env);
-      if (path === "/api/users/me" && request.method === "PATCH") { const body = await parseBody(request); const displayName = body.displayName !== undefined ? String(body.displayName).trim() : me.display_name; const bio = body.bio !== undefined ? String(body.bio).trim().slice(0, 200) : (me.bio ?? null); const avatarUrl = body.avatarUrl !== undefined ? String(body.avatarUrl) : me.avatar_url; await env.DB.prepare(`UPDATE users SET display_name = ?, avatar_url = ?, bio = ?, updated_at = ? WHERE id = ?`).bind(displayName, avatarUrl, bio, new Date().toISOString(), me.id).run(); const updated = await env.DB.prepare(`SELECT * FROM users WHERE id = ?`).bind(me.id).first<any>(); return json(publicUser(updated, true), 200, request, env); }
+      if (path === "/api/users/me" && request.method === "PATCH") { const body = await parseBody(request); const displayName = body.displayName !== undefined ? String(body.displayName).trim() : me.display_name; const bio = body.bio !== undefined ? String(body.bio).trim().slice(0, 200) : (me.bio ?? null); const avatarUrl = body.avatarUrl !== undefined ? String(body.avatarUrl) : me.avatar_url; if (avatarUrl && avatarUrl.length > 1200000) return error("Avatar image is too large", 400, request, env); await env.DB.prepare(`UPDATE users SET display_name = ?, avatar_url = ?, bio = ?, updated_at = ? WHERE id = ?`).bind(displayName, avatarUrl, bio, new Date().toISOString(), me.id).run(); const updated = await env.DB.prepare(`SELECT * FROM users WHERE id = ?`).bind(me.id).first<any>(); return json(publicUser(updated, true), 200, request, env); }
       if (path === "/api/users/me/heartbeat" && request.method === "POST") return json({ ok: true }, 200, request, env);
 
       const userFollowMatch = path.match(/^\/api\/users\/([^/]+)\/follow$/);
-      if (userFollowMatch) {
-        const targetId = String(userFollowMatch[1]);
-        const target = await env.DB.prepare(`SELECT * FROM users WHERE id = ? OR CAST(id AS REAL) = ? LIMIT 1`).bind(targetId, Number(targetId)).first<any>();
-        if (!target) return error("User not found", 404, request, env);
-        if (String(target.id) === String(me.id)) return error("You cannot follow yourself", 400, request, env);
-        if (request.method === "POST") await env.DB.prepare(`INSERT OR IGNORE INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?)`).bind(me.id, target.id, new Date().toISOString()).run();
-        else if (request.method === "DELETE") await env.DB.prepare(`DELETE FROM follows WHERE follower_id = ? AND following_id = ?`).bind(me.id, target.id).run();
-        else return error("Method not allowed", 405, request, env);
-        const following = await env.DB.prepare(`SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ? LIMIT 1`).bind(me.id, target.id).first<any>();
-        return json({ following: !!following }, 200, request, env);
-      }
-
+      if (userFollowMatch) { const targetId = String(userFollowMatch[1]); const target = await env.DB.prepare(`SELECT * FROM users WHERE id = ? OR CAST(id AS REAL) = ? LIMIT 1`).bind(targetId, Number(targetId)).first<any>(); if (!target) return error("User not found", 404, request, env); if (String(target.id) === String(me.id)) return error("You cannot follow yourself", 400, request, env); if (request.method === "POST") await env.DB.prepare(`INSERT OR IGNORE INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?)`).bind(me.id, target.id, new Date().toISOString()).run(); else if (request.method === "DELETE") await env.DB.prepare(`DELETE FROM follows WHERE follower_id = ? AND following_id = ?`).bind(me.id, target.id).run(); else return error("Method not allowed", 405, request, env); const following = await env.DB.prepare(`SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ? LIMIT 1`).bind(me.id, target.id).first<any>(); return json({ following: !!following }, 200, request, env); }
       const userProfileMatch = path.match(/^\/api\/users\/([^/]+)\/profile$/);
-      if (userProfileMatch && request.method === "GET") {
-        const targetId = String(userProfileMatch[1]);
-        const target = await env.DB.prepare(`SELECT * FROM users WHERE id = ? OR CAST(id AS REAL) = ? LIMIT 1`).bind(targetId, Number(targetId)).first<any>();
-        if (!target) return error("User not found", 404, request, env);
-        const followers = await env.DB.prepare(`SELECT COUNT(*) AS count FROM follows WHERE following_id = ?`).bind(target.id).first<any>();
-        const followingCount = await env.DB.prepare(`SELECT COUNT(*) AS count FROM follows WHERE follower_id = ?`).bind(target.id).first<any>();
-        const isFollowing = await env.DB.prepare(`SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ? LIMIT 1`).bind(me.id, target.id).first<any>();
-        return json({ user: publicUser(target), followers: Number(followers?.count || 0), following: Number(followingCount?.count || 0), isFollowing: !!isFollowing }, 200, request, env);
-      }
+      if (userProfileMatch && request.method === "GET") { const targetId = String(userProfileMatch[1]); const target = await env.DB.prepare(`SELECT * FROM users WHERE id = ? OR CAST(id AS REAL) = ? LIMIT 1`).bind(targetId, Number(targetId)).first<any>(); if (!target) return error("User not found", 404, request, env); const followers = await env.DB.prepare(`SELECT COUNT(*) AS count FROM follows WHERE following_id = ?`).bind(target.id).first<any>(); const followingCount = await env.DB.prepare(`SELECT COUNT(*) AS count FROM follows WHERE follower_id = ?`).bind(target.id).first<any>(); const isFollowing = await env.DB.prepare(`SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ? LIMIT 1`).bind(me.id, target.id).first<any>(); return json({ user: publicUser(target), followers: Number(followers?.count || 0), following: Number(followingCount?.count || 0), isFollowing: !!isFollowing }, 200, request, env); }
 
-      if (path === "/api/feed" && request.method === "GET") {
-        const mode = url.searchParams.get("mode") === "following" ? "following" : "for-you";
-        const rows = mode === "following"
-          ? await env.DB.prepare(`SELECT p.* FROM posts p WHERE p.user_id = ? OR p.user_id IN (SELECT following_id FROM follows WHERE follower_id = ?) ORDER BY p.created_at DESC LIMIT 50`).bind(me.id, me.id).all<any>()
-          : await env.DB.prepare(`SELECT p.* FROM posts p ORDER BY p.created_at DESC LIMIT 50`).all<any>();
-        const result = await Promise.all(rows.results.map((row: any) => postObject(env, row, String(me.id))));
-        return json(result, 200, request, env);
-      }
+      if (path === "/api/feed" && request.method === "GET") { const mode = url.searchParams.get("mode") || "for-you"; let rows; if (mode === "following") rows = await env.DB.prepare(`SELECT p.* FROM posts p WHERE p.user_id = ? OR p.user_id IN (SELECT following_id FROM follows WHERE follower_id = ?) ORDER BY p.created_at DESC LIMIT 50`).bind(me.id, me.id).all<any>(); else if (mode === "popular") rows = await env.DB.prepare(`SELECT p.*, (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id) AS like_score, (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) AS comment_score FROM posts p ORDER BY like_score DESC, comment_score DESC, p.created_at DESC LIMIT 50`).all<any>(); else rows = await env.DB.prepare(`SELECT p.* FROM posts p ORDER BY p.created_at DESC LIMIT 50`).all<any>(); const result = await Promise.all(rows.results.map((row: any) => postObject(env, row, String(me.id)))); return json(result, 200, request, env); }
 
-      if (path === "/api/posts" && request.method === "POST") {
-        const body = await parseBody(request); const content = String(body.content || "").trim();
-        if (!content || content.length > 500) return error("Posts must be between 1 and 500 characters", 400, request, env);
-        const postId = id(); const now = new Date().toISOString();
-        await env.DB.prepare(`INSERT INTO posts (id, user_id, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`).bind(postId, me.id, content, now, now).run();
-        const post = await env.DB.prepare(`SELECT * FROM posts WHERE id = ?`).bind(postId).first<any>();
-        return json(await postObject(env, post, String(me.id)), 201, request, env);
-      }
+      if (path === "/api/posts" && request.method === "POST") { const body = await parseBody(request); const content = String(body.content || "").trim(); const imageUrl = body.imageUrl ? String(body.imageUrl) : null; const musicUrl = body.musicUrl ? String(body.musicUrl) : null; const musicTitle = body.musicTitle ? String(body.musicTitle).slice(0, 200) : null; const musicArtist = body.musicArtist ? String(body.musicArtist).slice(0, 200) : null; const filter = body.filter ? String(body.filter).slice(0, 80) : null; if (!content && !imageUrl && !musicUrl) return error("Post cannot be empty", 400, request, env); if (content.length > 500) return error("Post text is limited to 500 characters", 400, request, env); if (imageUrl && imageUrl.length > 1200000) return error("That photo is too large. Please choose a smaller image.", 400, request, env); if (imageUrl && !/^data:image\/(jpeg|jpg|png|webp|gif);base64,/i.test(imageUrl)) return error("Invalid image", 400, request, env); const postId = id(); const now = new Date().toISOString(); await env.DB.prepare(`INSERT INTO posts (id, user_id, content, image_url, music_url, music_title, music_artist, filter, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(postId, me.id, content, imageUrl, musicUrl, musicTitle, musicArtist, filter, now, now).run(); const post = await env.DB.prepare(`SELECT * FROM posts WHERE id = ?`).bind(postId).first<any>(); return json(await postObject(env, post, String(me.id)), 201, request, env); }
 
-      const postLikeMatch = path.match(/^\/api\/posts\/([^/]+)\/like$/);
-      if (postLikeMatch) {
-        const postId = postLikeMatch[1]; const post = await env.DB.prepare(`SELECT id FROM posts WHERE id = ? LIMIT 1`).bind(postId).first<any>();
-        if (!post) return error("Post not found", 404, request, env);
-        if (request.method === "POST") await env.DB.prepare(`INSERT OR IGNORE INTO post_likes (post_id, user_id, created_at) VALUES (?, ?, ?)`).bind(postId, me.id, new Date().toISOString()).run();
-        else if (request.method === "DELETE") await env.DB.prepare(`DELETE FROM post_likes WHERE post_id = ? AND user_id = ?`).bind(postId, me.id).run();
-        else return error("Method not allowed", 405, request, env);
-        const likes = await env.DB.prepare(`SELECT COUNT(*) AS count FROM post_likes WHERE post_id = ?`).bind(postId).first<any>();
-        return json({ liked: request.method === "POST", likeCount: Number(likes?.count || 0) }, 200, request, env);
-      }
+      const repostMatch = path.match(/^\/api\/posts\/([^/]+)\/repost$/); if (repostMatch && request.method === "POST") { const originalId = repostMatch[1]; const original = await env.DB.prepare(`SELECT id FROM posts WHERE id = ? LIMIT 1`).bind(originalId).first<any>(); if (!original) return error("Post not found", 404, request, env); const body = await parseBody(request); const caption = String(body.caption || "").trim().slice(0, 500); const postId = id(); const now = new Date().toISOString(); await env.DB.prepare(`INSERT INTO posts (id, user_id, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`).bind(postId, me.id, `[PULSE_REPOST:${originalId}]${caption ? `\n${caption}` : ''}`, now, now).run(); const post = await env.DB.prepare(`SELECT * FROM posts WHERE id = ?`).bind(postId).first<any>(); return json(await postObject(env, post, String(me.id)), 201, request, env); }
 
-      const postCommentsMatch = path.match(/^\/api\/posts\/([^/]+)\/comments$/);
-      if (postCommentsMatch) {
-        const postId = postCommentsMatch[1]; const post = await env.DB.prepare(`SELECT id FROM posts WHERE id = ? LIMIT 1`).bind(postId).first<any>();
-        if (!post) return error("Post not found", 404, request, env);
-        if (request.method === "GET") {
-          const rows = await env.DB.prepare(`SELECT c.*, u.* FROM post_comments c JOIN users u ON u.id = c.user_id WHERE c.post_id = ? ORDER BY c.created_at ASC LIMIT 100`).bind(postId).all<any>();
-          return json(rows.results.map((r: any) => ({ id: String(r.id), content: r.content, createdAt: r.created_at, user: publicUser(r) })), 200, request, env);
-        }
-        if (request.method === "POST") {
-          const body = await parseBody(request); const content = String(body.content || "").trim();
-          if (!content || content.length > 300) return error("Comments must be between 1 and 300 characters", 400, request, env);
-          const commentId = id(); const now = new Date().toISOString();
-          await env.DB.prepare(`INSERT INTO post_comments (id, post_id, user_id, content, created_at) VALUES (?, ?, ?, ?, ?)`).bind(commentId, postId, me.id, content, now).run();
-          const row = await env.DB.prepare(`SELECT c.*, u.* FROM post_comments c JOIN users u ON u.id = c.user_id WHERE c.id = ?`).bind(commentId).first<any>();
-          return json({ id: String(row.id), content: row.content, createdAt: row.created_at, user: publicUser(row) }, 201, request, env);
-        }
-        return error("Method not allowed", 405, request, env);
-      }
+      const postLikeMatch = path.match(/^\/api\/posts\/([^/]+)\/like$/); if (postLikeMatch) { const postId = postLikeMatch[1]; const post = await env.DB.prepare(`SELECT id FROM posts WHERE id = ? LIMIT 1`).bind(postId).first<any>(); if (!post) return error("Post not found", 404, request, env); if (request.method === "POST") await env.DB.prepare(`INSERT OR IGNORE INTO post_likes (post_id, user_id, created_at) VALUES (?, ?, ?)`).bind(postId, me.id, new Date().toISOString()).run(); else if (request.method === "DELETE") await env.DB.prepare(`DELETE FROM post_likes WHERE post_id = ? AND user_id = ?`).bind(postId, me.id).run(); else return error("Method not allowed", 405, request, env); const likes = await env.DB.prepare(`SELECT COUNT(*) AS count FROM post_likes WHERE post_id = ?`).bind(postId).first<any>(); return json({ liked: request.method === "POST", likeCount: Number(likes?.count || 0) }, 200, request, env); }
+
+      const postCommentsMatch = path.match(/^\/api\/posts\/([^/]+)\/comments$/); if (postCommentsMatch) { const postId = postCommentsMatch[1]; const post = await env.DB.prepare(`SELECT id FROM posts WHERE id = ? LIMIT 1`).bind(postId).first<any>(); if (!post) return error("Post not found", 404, request, env); if (request.method === "GET") { const rows = await env.DB.prepare(`SELECT c.*, u.* FROM post_comments c JOIN users u ON u.id = c.user_id WHERE c.post_id = ? ORDER BY c.created_at ASC LIMIT 100`).bind(postId).all<any>(); return json(rows.results.map((r: any) => ({ id: String(r.id), content: r.content, createdAt: r.created_at, user: publicUser(r) })), 200, request, env); } if (request.method === "POST") { const body = await parseBody(request); const content = String(body.content || "").trim(); if (!content || content.length > 300) return error("Comments must be between 1 and 300 characters", 400, request, env); const commentId = id(); const now = new Date().toISOString(); await env.DB.prepare(`INSERT INTO post_comments (id, post_id, user_id, content, created_at) VALUES (?, ?, ?, ?, ?)`).bind(commentId, postId, me.id, content, now).run(); const row = await env.DB.prepare(`SELECT c.*, u.* FROM post_comments c JOIN users u ON u.id = c.user_id WHERE c.id = ?`).bind(commentId).first<any>(); return json({ id: String(row.id), content: row.content, createdAt: row.created_at, user: publicUser(row) }, 201, request, env); } return error("Method not allowed", 405, request, env); }
 
       if (path === "/api/conversations" && request.method === "GET") { const rows = await env.DB.prepare(`SELECT conversation_id FROM conversation_members WHERE user_id = ?`).bind(me.id).all<any>(); const result = await Promise.all(rows.results.map((r: any) => conversationObject(env, r.conversation_id, me.id))); result.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()); return json(result, 200, request, env); }
       if (path === "/api/conversations" && request.method === "POST") { const body = await parseBody(request); const participantId = String(body.participantId || ""); const participant = await env.DB.prepare(`SELECT id FROM users WHERE id = ? OR CAST(id AS REAL) = ? LIMIT 1`).bind(participantId, Number(participantId)).first<any>(); if (!participant) return error("Invalid participant", 400, request, env); const resolvedParticipantId = String(participant.id); const existing = await env.DB.prepare(`SELECT a.conversation_id FROM conversation_members a JOIN conversation_members b ON a.conversation_id = b.conversation_id WHERE a.user_id = ? AND b.user_id = ? LIMIT 1`).bind(me.id, resolvedParticipantId).first<any>(); let convId = existing?.conversation_id; if (!convId) { convId = id(); const now = new Date().toISOString(); await env.DB.batch([env.DB.prepare(`INSERT INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)`).bind(convId, now, now), env.DB.prepare(`INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?), (?, ?)`).bind(convId, me.id, convId, resolvedParticipantId)]); } return json(await conversationObject(env, convId, me.id), 201, request, env); }
