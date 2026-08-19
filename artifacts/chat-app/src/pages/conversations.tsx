@@ -5,26 +5,44 @@ import { useListUsers, useCreateConversation, useGetMe, User } from "@workspace/
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { getInitials } from "@/lib/utils";
-import { Search, MessageSquarePlus, Zap } from "lucide-react";
+import { Search, MessageSquarePlus, Zap, Loader2 } from "lucide-react";
 
 function StartChatPanel() {
   const [search, setSearch] = useState("");
   const [, setLocation] = useLocation();
+  const [errorMessage, setErrorMessage] = useState("");
   const { data: currentUser } = useGetMe();
-  const { data: users } = useListUsers(
+  const { data: users, isLoading } = useListUsers(
     { search: search.length >= 1 ? search : undefined },
     { query: { enabled: true } }
   );
   const createConversation = useCreateConversation();
 
   const startChat = (userId: number) => {
+    setErrorMessage("");
+    if (!Number.isFinite(Number(userId))) {
+      setErrorMessage("That user has an invalid account ID.");
+      return;
+    }
+
     createConversation.mutate(
-      { data: { participantId: userId } },
-      { onSuccess: (conv) => setLocation(`/conversations/${conv.id}`) }
+      { data: { participantId: Number(userId) } },
+      {
+        onSuccess: (conv) => {
+          if (!conv?.id) {
+            setErrorMessage("The conversation was created without an ID.");
+            return;
+          }
+          setLocation(`/conversations/${conv.id}`);
+        },
+        onError: (error: any) => {
+          setErrorMessage(error?.message || "Couldn't start the conversation. Please try again.");
+        },
+      }
     );
   };
 
-  const people = (users ?? []).filter((u: User) => u.id !== currentUser?.id);
+  const people = users ?? [];
 
   return (
     <div className="flex flex-col h-full max-w-xl mx-auto w-full px-8 py-12">
@@ -36,7 +54,7 @@ function StartChatPanel() {
           <h2 className="text-xl font-bold text-foreground">Start a conversation</h2>
         </div>
         <p className="text-muted-foreground text-sm ml-[52px]">
-          Pick someone below to message them instantly.
+          Pick someone below to message them instantly. You can also message yourself for testing.
         </p>
       </div>
 
@@ -50,11 +68,20 @@ function StartChatPanel() {
         />
       </div>
 
+      {errorMessage && (
+        <div className="mb-4 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {errorMessage}
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto custom-scrollbar -mx-2">
-        {people.length === 0 && (
+        {isLoading && (
+          <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+        )}
+        {!isLoading && people.length === 0 && (
           <div className="text-center py-16 text-muted-foreground">
             <p className="text-sm">
-              {search ? `No one found for "${search}"` : "No other users yet — invite someone to join!"}
+              {search ? `No one found for "${search}"` : "No users yet."}
             </p>
           </div>
         )}
@@ -63,7 +90,7 @@ function StartChatPanel() {
             key={user.id}
             onClick={() => startChat(user.id)}
             disabled={createConversation.isPending}
-            className="flex items-center gap-4 w-full px-4 py-3 rounded-xl hover:bg-secondary/50 transition-all text-left group"
+            className="flex items-center gap-4 w-full px-4 py-3 rounded-xl hover:bg-secondary/50 transition-all text-left group disabled:opacity-60"
           >
             <div className="relative flex-shrink-0">
               <Avatar className="w-12 h-12">
@@ -77,12 +104,12 @@ function StartChatPanel() {
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-foreground truncate">{user.displayName}</p>
               <p className="text-sm text-muted-foreground truncate">
-                {user.isOnline ? "🟢 Online" : user.bio || `@${user.username}`}
+                {user.id === currentUser?.id ? "🟢 You" : user.isOnline ? "🟢 Online" : user.bio || `@${user.username}`}
               </p>
             </div>
-            <div className="flex items-center gap-1.5 text-sm text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-              <MessageSquarePlus className="w-4 h-4" />
-              Message
+            <div className="flex items-center gap-1.5 text-sm text-primary font-medium flex-shrink-0">
+              {createConversation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquarePlus className="w-4 h-4" />}
+              <span>Message</span>
             </div>
           </button>
         ))}
@@ -94,7 +121,6 @@ function StartChatPanel() {
 export default function Conversations() {
   return (
     <div className="flex w-full h-full">
-      {/* Sidebar */}
       <div className="w-full md:w-72 lg:w-80 border-r border-border bg-card/30 flex flex-col flex-shrink-0">
         <div className="h-14 flex items-center px-4 border-b border-border flex-shrink-0">
           <h2 className="text-base font-semibold">Messages</h2>
@@ -103,8 +129,6 @@ export default function Conversations() {
           <ConversationsList />
         </div>
       </div>
-
-      {/* Right panel – desktop only */}
       <div className="hidden md:flex flex-1 bg-background/50 overflow-hidden">
         <StartChatPanel />
       </div>
