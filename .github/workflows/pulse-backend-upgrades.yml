@@ -1,0 +1,54 @@
+name: Pulse backend upgrades
+
+on:
+  push:
+    paths:
+      - 'artifacts/chat-app/**'
+      - '.github/workflows/pulse-backend-upgrades.yml'
+      - 'cloudflare-worker/migrations/**'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch Cloudflare Worker
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('cloudflare-worker/src/index.ts')
+          s = p.read_text()
+
+          old = 'function publicUser(row: any, online = false) { return { id: Number(row.id), username: row.username, displayName: row.display_name || row.username, avatarUrl: row.avatar_url ?? null, bio: row.bio ?? null, isOnline: online, lastSeen: row.updated_at || row.created_at, createdAt: row.created_at }; }'
+          new = 'function publicUser(row: any, online = false) { const seen = row.last_seen_at || row.updated_at || row.created_at; const fresh = Date.now() - new Date(seen).getTime() < 45000; return { id: Number(row.id), username: row.username, displayName: row.display_name || row.username, avatarUrl: row.avatar_url ?? null, bio: row.bio ?? null, isOnline: fresh, lastSeen: seen, createdAt: row.created_at }; }'
+          if old in s: s = s.replace(old, new)
+
+          old = 'if (path === "/api/users/me/heartbeat" && request.method === "POST") return json({ ok: true }, 200, request, env);'
+          new = 'if (path === "/api/users/me/heartbeat" && request.method === "POST") { const now = new Date().toISOString(); await env.DB.prepare(`UPDATE users SET last_seen_at = ? WHERE id = ?`).bind(now, me.id).run(); return json({ ok: true, lastSeen: now }, 200, request, env); }'
+          if old in s: s = s.replace(old, new)
+
+          marker = '      if (path === "/api/auth/logout" && request.method === "POST")'
+          if 'path === "/api/auth/change-password"' not in s:
+            route = '''      if (path === "/api/auth/change-password" && request.method === "POST") { const body = await parseBody(request); const currentPassword = String(body.currentPassword || ""); const newPassword = String(body.newPassword || ""); if (newPassword.length < 6) return error("New password must be at least 6 characters", 400, request, env); const user = await currentUser(request, env); if (!user) return error("Not authenticated", 401, request, env); if (!(await verifyPassword(currentPassword, user.password_hash))) return error("Current password is incorrect", 400, request, env); const passwordHash = await createPasswordHash(newPassword); await env.DB.prepare(`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`).bind(passwordHash, new Date().toISOString(), user.id).run(); return json({ ok: true }, 200, request, env); }\n'''
+            s = s.replace(marker, route + marker)
+
+          old = 'reactions: await reactions(env, row.id)'
+          new = 'readAt: (await env.DB.prepare(`SELECT MIN(read_at) AS read_at FROM message_reads WHERE message_id = ? AND user_id != ?`).bind(row.id, row.sender_id).first<any>())?.read_at || null, reactions: await reactions(env, row.id)'
+          if old in s and 'message_reads WHERE message_id' not in s: s = s.replace(old, new)
+
+          if 'path.match(/^\\/api\\/conversations\\/([^/]+)\\/(?:read|mark-read)$/' not in s:
+            marker = '      if (path === "/api/users" && request.method === "GET")'
+            route = '''      const readMatch = path.match(/^\\/api\\/conversations\\/([^/]+)\\/(?:read|mark-read)$/);\n      if (readMatch && request.method === "POST") { const conversationId = readMatch[1]; const member = await env.DB.prepare(`SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ? LIMIT 1`).bind(conversationId, me.id).first<any>(); if (!member) return error("Conversation not found", 404, request, env); const now = new Date().toISOString(); await env.DB.prepare(`INSERT OR REPLACE INTO message_reads (message_id, user_id, read_at) SELECT id, ?, ? FROM messages WHERE conversation_id = ? AND sender_id != ?`).bind(me.id, now, conversationId, me.id).run(); return json({ ok: true, readAt: now }, 200, request, env); }\n'''
+            s = s.replace(marker, route + marker)
+
+          p.write_text(s)
+      - name: Commit backend patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloudflare-worker/src/index.ts
+          git diff --cached --quiet || git commit -m 'Fix presence, read receipts, and password changes'
+          git push
