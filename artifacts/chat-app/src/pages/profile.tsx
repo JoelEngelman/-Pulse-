@@ -7,143 +7,44 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getInitials } from "@/lib/utils";
 
+async function imageToData(file: File) {
+  if (!file.type.startsWith("image/")) throw new Error("Please choose an image file.");
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 700 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Couldn't prepare that photo.");
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.8);
+}
+
 export default function Profile() {
   const { data: user, isLoading } = useGetMe();
   const queryClient = useQueryClient();
   const updateMe = useUpdateMe();
-
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [isSaved, setIsSaved] = useState(false);
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (user) {
-      setDisplayName(user.displayName || "");
-      setBio(user.bio || "");
-      setAvatarUrl(user.avatarUrl || "");
-    }
-  }, [user]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    updateMe.mutate(
-      { data: { displayName, bio, avatarUrl } },
-      {
-        onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-          setIsSaved(true);
-          setTimeout(() => setIsSaved(false), 3000);
-        }
-      }
-    );
-  };
-
-  if (isLoading || !user) {
-    return (
-      <div className="flex items-center justify-center w-full h-full">
-        <Loader2 className="w-8 h-8 text-primary animate-spin" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col w-full h-full max-w-3xl mx-auto p-4 md:p-8">
-      <div className="flex items-center gap-3 mb-8">
-        <div className="bg-primary/10 text-primary p-3 rounded-2xl">
-          <UserIcon className="w-6 h-6" />
+  useEffect(() => { if (user) { setDisplayName(user.displayName || ""); setBio(user.bio || ""); setAvatarUrl(user.avatarUrl || ""); } }, [user]);
+  const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); setError(""); updateMe.mutate({ data: { displayName, bio, avatarUrl } }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] }); setIsSaved(true); setTimeout(() => setIsSaved(false), 3000); }, onError: (e:any) => setError(e?.message || "Couldn't save your profile.") }); };
+  if (isLoading || !user) return <div className="flex items-center justify-center w-full h-full"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>;
+  return <div className="flex flex-col w-full h-full max-w-3xl mx-auto p-4 md:p-8 overflow-y-auto custom-scrollbar">
+    <div className="flex items-center gap-3 mb-8"><div className="bg-primary/10 text-primary p-3 rounded-2xl"><UserIcon className="w-6 h-6" /></div><div><h1 className="text-3xl font-bold text-foreground tracking-tight">Your Profile</h1><p className="text-muted-foreground">Manage your identity and presence</p></div></div>
+    <div className="bg-card border border-border rounded-3xl p-6 md:p-10 shadow-sm relative overflow-hidden"><div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-[80px] pointer-events-none" />
+      <form onSubmit={handleSubmit} className="flex flex-col md:flex-row gap-10 relative z-10">
+        <div className="flex flex-col items-center gap-4 flex-shrink-0"><label className="relative group cursor-pointer"><Avatar className="w-32 h-32 border-4 border-background shadow-xl"><AvatarImage src={avatarUrl} alt={displayName} /><AvatarFallback className="text-4xl bg-secondary">{getInitials(displayName || user.username)}</AvatarFallback></Avatar><div className="absolute inset-0 bg-black/60 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><Camera className="w-8 h-8 text-white" /></div><div className="absolute bottom-1 right-1 w-6 h-6 bg-green-500 rounded-full border-4 border-background" title="Online status" /><input type="file" accept="image/*" className="hidden" onChange={async e => { const f=e.target.files?.[0]; if(!f)return; try{setAvatarUrl(await imageToData(f));setError("");}catch(err:any){setError(err.message);} e.currentTarget.value=""; }} /></label><div className="text-center"><p className="font-medium">@{user.username}</p><p className="text-xs text-muted-foreground mt-1">Joined {new Date(user.createdAt).toLocaleDateString()}</p></div></div>
+        <div className="flex-1 space-y-6"><div className="space-y-2"><label className="text-sm font-semibold text-foreground">Display Name</label><Input value={displayName} onChange={e=>setDisplayName(e.target.value)} placeholder="How you appear to others" className="bg-background/50 h-12 text-base" maxLength={50} required /></div>
+          <div className="space-y-2"><label className="text-sm font-semibold text-foreground">Avatar URL or uploaded photo</label><Input value={avatarUrl.startsWith("data:image") ? "Uploaded photo" : avatarUrl} onChange={e=>setAvatarUrl(e.target.value)} placeholder="https://example.com/avatar.jpg" className="bg-background/50 h-12 text-base" /><p className="text-xs text-muted-foreground">Click your avatar to upload a photo, or paste an image URL.</p></div>
+          <div className="space-y-2"><label className="text-sm font-semibold text-foreground">Bio</label><textarea value={bio} onChange={e=>setBio(e.target.value)} placeholder="A little bit about yourself..." className="flex w-full rounded-xl border border-input bg-background/50 px-4 py-3 text-base ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 min-h-[120px] resize-y custom-scrollbar" maxLength={200} /></div>
+          {error&&<div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+          <div className="pt-4 flex items-center justify-end gap-4">{isSaved&&<span className="flex items-center gap-1.5 text-sm text-green-500"><CheckCircle2 className="w-4 h-4"/>Saved successfully</span>}<Button type="submit" variant="glow" size="lg" disabled={updateMe.isPending} className="px-8 cursor-pointer">{updateMe.isPending?<><Loader2 className="w-4 h-4 mr-2 animate-spin"/>Saving...</>:<><Save className="w-4 h-4 mr-2"/>Save Changes</>}</Button></div>
         </div>
-        <div>
-          <h1 className="text-3xl font-bold text-foreground tracking-tight">Your Profile</h1>
-          <p className="text-muted-foreground">Manage your identity and presence</p>
-        </div>
-      </div>
-
-      <div className="bg-card border border-border rounded-3xl p-6 md:p-10 shadow-sm relative overflow-hidden">
-        {/* Subtle background decoration */}
-        <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-[80px] pointer-events-none" />
-
-        <form onSubmit={handleSubmit} className="flex flex-col md:flex-row gap-10 relative z-10">
-          
-          {/* Avatar Section */}
-          <div className="flex flex-col items-center gap-4 flex-shrink-0">
-            <div className="relative group cursor-pointer">
-              <Avatar className="w-32 h-32 border-4 border-background shadow-xl">
-                <AvatarImage src={avatarUrl} alt={displayName} />
-                <AvatarFallback className="text-4xl bg-secondary">{getInitials(displayName || user.username)}</AvatarFallback>
-              </Avatar>
-              <div className="absolute inset-0 bg-black/60 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <Camera className="w-8 h-8 text-white" />
-              </div>
-              <div className="absolute bottom-1 right-1 w-6 h-6 bg-green-500 rounded-full border-4 border-background" title="Online status" />
-            </div>
-            <div className="text-center">
-              <p className="font-medium">@{user.username}</p>
-              <p className="text-xs text-muted-foreground mt-1">Joined {new Date(user.createdAt).toLocaleDateString()}</p>
-            </div>
-          </div>
-
-          {/* Form Fields */}
-          <div className="flex-1 space-y-6">
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-foreground">Display Name</label>
-              <Input
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="How you appear to others"
-                className="bg-background/50 h-12 text-base"
-                maxLength={50}
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-foreground">Avatar URL</label>
-              <Input
-                value={avatarUrl}
-                onChange={(e) => setAvatarUrl(e.target.value)}
-                placeholder="https://example.com/avatar.jpg"
-                className="bg-background/50 h-12 text-base"
-              />
-              <p className="text-xs text-muted-foreground">Provide a link to an image. Leave empty to use initials.</p>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-foreground">Bio</label>
-              <textarea
-                value={bio}
-                onChange={(e) => setBio(e.target.value)}
-                placeholder="A little bit about yourself..."
-                className="flex w-full rounded-xl border border-input bg-background/50 px-4 py-3 text-base ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[120px] resize-y custom-scrollbar"
-                maxLength={200}
-              />
-            </div>
-
-            <div className="pt-4 flex items-center justify-end gap-4">
-              {isSaved && (
-                <span className="flex items-center gap-1.5 text-sm text-green-500 animate-in fade-in slide-in-from-right-4">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Saved successfully
-                </span>
-              )}
-              <Button 
-                type="submit" 
-                variant="glow" 
-                size="lg"
-                disabled={updateMe.isPending}
-                className="px-8"
-              >
-                {updateMe.isPending ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</>
-                ) : (
-                  <><Save className="w-4 h-4 mr-2" /> Save Changes</>
-                )}
-              </Button>
-            </div>
-          </div>
-
-        </form>
-      </div>
+      </form>
     </div>
-  );
+  </div>;
 }
