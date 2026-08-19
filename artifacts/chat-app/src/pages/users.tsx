@@ -19,10 +19,10 @@ export default function Users() {
   );
   const createConversation = useCreateConversation();
 
-  const handleStartChat = (userId: number) => {
+  const handleStartChat = (user: User) => {
     setErrorMessage("");
     createConversation.mutate(
-      { data: { participantId: userId } },
+      { data: { participantId: user.id } },
       {
         onSuccess: (conversation) => {
           if (!conversation?.id) {
@@ -65,7 +65,7 @@ export default function Users() {
                   <div className="relative flex-shrink-0"><Avatar className="w-14 h-14 border-2 border-transparent group-hover:border-primary/20 transition-colors"><AvatarImage src={user.avatarUrl || ""} alt={user.displayName} /><AvatarFallback className="text-lg">{getInitials(user.displayName)}</AvatarFallback></Avatar><div className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-card ${user.isOnline ? 'bg-green-500' : 'bg-muted-foreground'}`} /></div>
                   <div className="flex flex-col min-w-0"><span className="font-semibold text-foreground text-lg truncate">{user.displayName}</span><span className="text-sm text-muted-foreground truncate">@{user.username}</span>{user.bio && <span className="text-xs text-muted-foreground mt-1 line-clamp-1 max-w-[200px]">{user.bio}</span>}</div>
                 </div>
-                <Button onClick={() => handleStartChat(user.id)} variant="ghost" size="sm" className="rounded-xl ml-3 bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-all flex-shrink-0" disabled={createConversation.isPending} aria-label={`Message ${user.displayName}`}>
+                <Button onClick={() => handleStartChat(user)} variant="ghost" size="sm" className="cursor-pointer rounded-xl ml-3 bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-all flex-shrink-0" disabled={createConversation.isPending} aria-label={`Message ${user.displayName}`}>
                   {createConversation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <MessageSquare className="w-4 h-4 mr-2" />}
                   Message
                 </Button>
