@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getInitials } from "@/lib/utils";
+import { recordProfileCustomization } from "@/lib/achievements";
 
 async function imageToData(file: File) {
   if (!file.type.startsWith("image/")) throw new Error("Please choose an image file.");
@@ -31,7 +32,7 @@ export default function Profile() {
   const [error, setError] = useState("");
 
   useEffect(() => { if (user) { setDisplayName(user.displayName || ""); setBio(user.bio || ""); setAvatarUrl(user.avatarUrl || ""); } }, [user]);
-  const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); setError(""); updateMe.mutate({ data: { displayName, bio, avatarUrl } }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] }); setIsSaved(true); setTimeout(() => setIsSaved(false), 3000); }, onError: (e:any) => setError(e?.message || "Couldn't save your profile.") }); };
+  const handleSubmit = (e: React.FormEvent) => { e.preventDefault(); setError(""); updateMe.mutate({ data: { displayName, bio, avatarUrl } }, { onSuccess: () => { if (user?.username) recordProfileCustomization(user.username); queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] }); setIsSaved(true); setTimeout(() => setIsSaved(false), 3000); }, onError: (e:any) => setError(e?.message || "Couldn't save your profile.") }); };
   if (isLoading || !user) return <div className="flex items-center justify-center w-full h-full"><Loader2 className="w-8 h-8 text-primary animate-spin" /></div>;
   return <div className="flex flex-col w-full h-full max-w-3xl mx-auto p-4 md:p-8 overflow-y-auto custom-scrollbar">
     <div className="flex items-center gap-3 mb-8"><div className="bg-primary/10 text-primary p-3 rounded-2xl"><UserIcon className="w-6 h-6" /></div><div><h1 className="text-3xl font-bold text-foreground tracking-tight">Your Profile</h1><p className="text-muted-foreground">Manage your identity and presence</p></div></div>
