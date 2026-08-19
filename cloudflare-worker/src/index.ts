@@ -49,7 +49,7 @@ function publicUser(row: any, online = false) {
     username: row.username,
     displayName: row.display_name || row.username,
     avatarUrl: row.avatar_url ?? null,
-    bio: null,
+    bio: row.bio ?? null,
     isOnline: online,
     lastSeen: row.updated_at || row.created_at,
     createdAt: row.created_at,
@@ -176,26 +176,24 @@ export default {
     try {
       await ensureExtraTables(env);
       const url = new URL(request.url);
-      const path = url.pathname.replace(/\/+$/, "") || "/";
+      const path = url.pathname.replace(/\\/+$/, "") || "/";
 
-      if (path === "/" || path === "/api/health" || path === "/api/healthz") {
-        return json({ status: "ok", service: "pulse-api" }, 200, request, env);
-      }
+      if (path === "/api/health" && request.method === "GET") return json({ ok: true }, 200, request, env);
 
       if (path === "/api/auth/register" && request.method === "POST") {
         const body = await parseBody(request);
         const username = String(body.username || "").trim();
-        const displayName = String(body.displayName || "").trim();
+        const displayName = String(body.displayName || username).trim();
         const password = String(body.password || "");
-        if (username.length < 3 || username.length > 30 || displayName.length < 1 || displayName.length > 50 || password.length < 6) {
-          return error("Invalid input", 400, request, env);
-        }
-        const existing = await env.DB.prepare(`SELECT id FROM users WHERE lower(username) = lower(?) LIMIT 1`).bind(username).first();
-        if (existing) return error("Username already taken", 400, request, env);
+        if (!/^[A-Za-z0-9_]{3,32}$/.test(username)) return error("Username must be 3-32 characters using letters, numbers, or underscores", 400, request, env);
+        if (password.length < 6) return error("Password must be at least 6 characters", 400, request, env);
+        const exists = await env.DB.prepare(`SELECT id FROM users WHERE lower(username) = lower(?) LIMIT 1`).bind(username).first();
+        if (exists) return error("Username already exists", 409, request, env);
         const userId = id();
-        const passwordHash = await createPasswordHash(password);
         const now = new Date().toISOString();
-        await env.DB.prepare(`INSERT INTO users (id, username, email, password_hash, display_name, created_at, updated_at) VALUES (?, ?, NULL, ?, ?, ?, ?)`).bind(userId, username, passwordHash, displayName, now, now).run();
+        const passwordHash = await createPasswordHash(password);
+        await env.DB.prepare(`INSERT INTO users (id, username, display_name, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`)
+          .bind(userId, username, displayName, passwordHash, now, now).run();
         const sessionId = crypto.randomUUID();
         const expires = new Date(Date.now() + SESSION_DAYS * 86400000).toISOString();
         await env.DB.prepare(`INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)`).bind(sessionId, userId, expires).run();
@@ -243,8 +241,9 @@ export default {
       if (path === "/api/users/me" && request.method === "PATCH") {
         const body = await parseBody(request);
         const displayName = body.displayName !== undefined ? String(body.displayName).trim() : me.display_name;
+        const bio = body.bio !== undefined ? String(body.bio).trim().slice(0, 200) : (me.bio ?? null);
         const avatarUrl = body.avatarUrl !== undefined ? String(body.avatarUrl) : me.avatar_url;
-        await env.DB.prepare(`UPDATE users SET display_name = ?, avatar_url = ?, updated_at = ? WHERE id = ?`).bind(displayName, avatarUrl, new Date().toISOString(), me.id).run();
+        await env.DB.prepare(`UPDATE users SET display_name = ?, avatar_url = ?, bio = ?, updated_at = ? WHERE id = ?`).bind(displayName, avatarUrl, bio, new Date().toISOString(), me.id).run();
         const updated = await env.DB.prepare(`SELECT * FROM users WHERE id = ?`).bind(me.id).first<any>();
         return json(publicUser(updated, true), 200, request, env);
       }
@@ -276,7 +275,7 @@ export default {
         return json(await conversationObject(env, convId, me.id), 201, request, env);
       }
 
-      const convMatch = path.match(/^\/api\/conversations\/([^/]+)$/);
+      const convMatch = path.match(/^\\/api\\/conversations\\/([^/]+)$/);
       if (convMatch && request.method === "GET") {
         const convId = convMatch[1];
         const member = await env.DB.prepare(`SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?`).bind(convId, me.id).first();
@@ -284,10 +283,10 @@ export default {
         return json(await conversationObject(env, convId, me.id), 200, request, env);
       }
 
-      const readMatch = path.match(/^\/api\/conversations\/([^/]+)\/read$/);
+      const readMatch = path.match(/^\\/api\\/conversations\\/([^/]+)\\/read$/);
       if (readMatch && request.method === "POST") return json({ ok: true }, 200, request, env);
 
-      const typingMatch = path.match(/^\/api\/conversations\/([^/]+)\/typing$/);
+      const typingMatch = path.match(/^\\/api\\/conversations\\/([^/]+)\\/typing$/);
       if (typingMatch && request.method === "POST") {
         const body = await parseBody(request);
         const convId = typingMatch[1];
@@ -297,13 +296,13 @@ export default {
         return json({ ok: true }, 200, request, env);
       }
 
-      const typingStatusMatch = path.match(/^\/api\/conversations\/([^/]+)\/typing-status$/);
+      const typingStatusMatch = path.match(/^\\/api\\/conversations\\/([^/]+)\\/typing-status$/);
       if (typingStatusMatch && request.method === "GET") {
         const rows = await env.DB.prepare(`SELECT u.* FROM typing_indicators t JOIN users u ON u.id=t.user_id WHERE t.conversation_id=? AND t.user_id != ? AND t.updated_at > ?`).bind(typingStatusMatch[1], me.id, new Date(Date.now() - 5000).toISOString()).all<any>();
         return json(rows.results.map((u: any) => ({ userId: Number(u.id), username: u.username, displayName: u.display_name })), 200, request, env);
       }
 
-      const messagesMatch = path.match(/^\/api\/conversations\/([^/]+)\/messages$/);
+      const messagesMatch = path.match(/^\\/api\\/conversations\\/([^/]+)\\/messages$/);
       if (messagesMatch) {
         const convId = messagesMatch[1];
         const member = await env.DB.prepare(`SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?`).bind(convId, me.id).first();
@@ -327,57 +326,15 @@ export default {
             env.DB.prepare(`INSERT INTO messages (id, conversation_id, sender_id, body, created_at) VALUES (?, ?, ?, ?, ?)`).bind(messageId, convId, me.id, content, now),
             env.DB.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).bind(now, convId),
           ]);
-          const msg = await env.DB.prepare(`SELECT * FROM messages WHERE id = ?`).bind(messageId).first<any>();
-          return json(await messageObject(env, msg), 201, request, env);
+          const message = await env.DB.prepare(`SELECT * FROM messages WHERE id = ?`).bind(messageId).first<any>();
+          return json(await messageObject(env, message), 201, request, env);
         }
-      }
-
-      const reactionMatch = path.match(/^\/api\/conversations\/([^/]+)\/messages\/([^/]+)\/reactions(?:\/([^/]+))?$/);
-      if (reactionMatch) {
-        const msgId = reactionMatch[2];
-        if (request.method === "POST") {
-          const body = await parseBody(request);
-          const emoji = String(body.emoji || "");
-          if (!emoji) return error("Invalid reaction", 400, request, env);
-          await env.DB.prepare(`INSERT OR IGNORE INTO message_reactions (message_id,user_id,emoji) VALUES (?,?,?)`).bind(msgId, me.id, emoji).run();
-        } else if (request.method === "DELETE" && reactionMatch[3]) {
-          await env.DB.prepare(`DELETE FROM message_reactions WHERE message_id=? AND user_id=? AND emoji=?`).bind(msgId, me.id, decodeURIComponent(reactionMatch[3])).run();
-        }
-        const msg = await env.DB.prepare(`SELECT * FROM messages WHERE id=?`).bind(msgId).first<any>();
-        if (!msg) return error("Message not found", 404, request, env);
-        return json(await messageObject(env, msg), 200, request, env);
-      }
-
-      const editMatch = path.match(/^\/api\/conversations\/([^/]+)\/messages\/([^/]+)$/);
-      if (editMatch && request.method === "PATCH") {
-        const body = await parseBody(request);
-        const msg = await env.DB.prepare(`SELECT * FROM messages WHERE id=? AND conversation_id=?`).bind(editMatch[2], editMatch[1]).first<any>();
-        if (!msg || String(msg.sender_id) !== String(me.id)) return error("Forbidden", 403, request, env);
-        const content = String(body.content || "").trim();
-        if (!content) return error("Message cannot be empty", 400, request, env);
-        await env.DB.prepare(`UPDATE messages SET body=? WHERE id=?`).bind(content, editMatch[2]).run();
-        return json(await messageObject(env, { ...msg, body: content }), 200, request, env);
-      }
-
-      if (editMatch && request.method === "DELETE") {
-        const msg = await env.DB.prepare(`SELECT * FROM messages WHERE id=? AND conversation_id=?`).bind(editMatch[2], editMatch[1]).first<any>();
-        if (!msg || String(msg.sender_id) !== String(me.id)) return error("Forbidden", 403, request, env);
-        await env.DB.prepare(`DELETE FROM messages WHERE id=?`).bind(editMatch[2]).run();
-        return json({ ok: true }, 200, request, env);
-      }
-
-      if (path === "/api/messages/search" && request.method === "GET") {
-        const q = (url.searchParams.get("q") || "").trim();
-        if (!q) return json([], 200, request, env);
-        const rows = await env.DB.prepare(`SELECT m.* FROM messages m JOIN conversation_members cm ON cm.conversation_id=m.conversation_id WHERE cm.user_id=? AND lower(m.body) LIKE lower(?) ORDER BY m.created_at DESC LIMIT 20`).bind(me.id, `%${q}%`).all<any>();
-        const result = await Promise.all(rows.results.map(async (r: any) => ({ message: await messageObject(env, r), conversationId: Number(r.conversation_id) })));
-        return json(result, 200, request, env);
       }
 
       return error("Not found", 404, request, env);
-    } catch (e) {
-      console.error(e);
-      return error("Server error", 500, request, env);
+    } catch (err: any) {
+      console.error(err);
+      return error(err?.message || "Internal server error", 500, request, env);
     }
   },
 };
