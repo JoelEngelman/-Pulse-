@@ -26,7 +26,11 @@ import { getInitials } from "@/lib/utils";
 
 export default function Chat() {
   const [, params] = useRoute("/conversations/:id");
-  const conversationId = params?.id ? parseInt(params.id) : 0;
+  // IMPORTANT: conversation IDs are 64-bit database IDs and must stay strings.
+  // parseInt/Number can round them and turn a real conversation ID into a
+  // different ID, causing "Conversation not found" when sending a message.
+  const conversationId = params?.id || "";
+  const hookConversationId = conversationId as any;
 
   const [content, setContent] = useState("");
   const [sendError, setSendError] = useState("");
@@ -35,26 +39,26 @@ export default function Chat() {
 
   const { data: currentUser } = useGetMe({ query: { staleTime: Infinity, refetchOnWindowFocus: false, queryKey: getGetMeQueryKey() } });
 
-  const { data: conversation, isLoading: isLoadingConv } = useGetConversation(conversationId, {
+  const { data: conversation, isLoading: isLoadingConv } = useGetConversation(hookConversationId, {
     query: {
       enabled: !!conversationId,
-      queryKey: getGetConversationQueryKey(conversationId)
+      queryKey: getGetConversationQueryKey(hookConversationId)
     }
   });
 
-  const { data: messages, isLoading: isLoadingMessages } = useGetMessages(conversationId, undefined, {
+  const { data: messages, isLoading: isLoadingMessages } = useGetMessages(hookConversationId, undefined, {
     query: {
       enabled: !!conversationId,
       refetchInterval: 2000,
-      queryKey: getGetMessagesQueryKey(conversationId)
+      queryKey: getGetMessagesQueryKey(hookConversationId)
     }
   });
 
-  const { data: typingStatus } = useGetTypingStatus(conversationId, {
+  const { data: typingStatus } = useGetTypingStatus(hookConversationId, {
     query: {
       enabled: !!conversationId,
       refetchInterval: 1000,
-      queryKey: getGetTypingStatusQueryKey(conversationId)
+      queryKey: getGetTypingStatusQueryKey(hookConversationId)
     }
   });
 
@@ -64,7 +68,7 @@ export default function Chat() {
 
   useEffect(() => {
     if (conversationId && conversation?.unreadCount) {
-      markRead.mutate({ conversationId }, {
+      markRead.mutate({ conversationId: hookConversationId }, {
         onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/conversations"] })
       });
     }
@@ -77,7 +81,7 @@ export default function Chat() {
   useEffect(() => {
     if (!conversationId) return;
     const timeout = setTimeout(() => {
-      setTyping.mutate({ conversationId, data: { isTyping: content.length > 0 } });
+      setTyping.mutate({ conversationId: hookConversationId, data: { isTyping: content.length > 0 } });
     }, 300);
     return () => clearTimeout(timeout);
   }, [content, conversationId]);
@@ -89,13 +93,13 @@ export default function Chat() {
     setSendError("");
 
     sendMessage.mutate(
-      { conversationId, data: { content: trimmed } },
+      { conversationId: hookConversationId, data: { content: trimmed } },
       {
         onSuccess: () => {
           setContent("");
-          queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(conversationId) });
+          queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(hookConversationId) });
           queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
-          setTyping.mutate({ conversationId, data: { isTyping: false } });
+          setTyping.mutate({ conversationId: hookConversationId, data: { isTyping: false } });
         },
         onError: (error: any) => {
           setSendError(error?.message || "Couldn't send that message. Please try again.");
@@ -104,8 +108,6 @@ export default function Chat() {
     );
   };
 
-  // A self-conversation has only one participant. In that case, use the
-  // logged-in user for the header instead of treating the chat as broken.
   const participant = conversation?.participants?.[0];
   const otherUser = conversation?.participants.find(p => p.id !== currentUser?.id) || participant;
   const isSelfChat = !!currentUser && !!otherUser && otherUser.id === currentUser.id;
@@ -116,13 +118,13 @@ export default function Chat() {
     <div className="flex w-full h-full">
       <div className="hidden md:flex w-80 lg:w-96 border-r border-border bg-card/30 flex-col flex-shrink-0">
         <div className="h-16 flex items-center px-4 border-b border-border flex-shrink-0"><h2 className="text-lg font-semibold">Messages</h2></div>
-        <div className="flex-1 overflow-hidden"><ConversationsList activeId={conversationId} /></div>
+        <div className="flex-1 overflow-hidden"><ConversationsList activeId={hookConversationId} /></div>
       </div>
 
       <div className="flex-1 flex flex-col bg-background/50 h-full relative">
         <div className="h-16 border-b border-border bg-card/50 backdrop-blur-sm flex items-center px-4 justify-between flex-shrink-0 z-10 sticky top-0">
           <div className="flex items-center gap-3">
-            <Link href="/conversations" className="md:hidden p-2 -ml-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"><ChevronLeft className="w-6 h-6" /></Link>
+            <Link href="/conversations" className="md:hidden p-2 -ml-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors cursor-pointer"><ChevronLeft className="w-6 h-6" /></Link>
             {otherUser ? (
               <div className="flex items-center gap-3">
                 <Avatar className="w-10 h-10"><AvatarImage src={otherUser.avatarUrl || ""} alt={otherUser.displayName} /><AvatarFallback>{getInitials(otherUser.displayName)}</AvatarFallback></Avatar>
@@ -133,7 +135,7 @@ export default function Chat() {
               </div>
             ) : <div className="w-48 h-10 bg-secondary/50 animate-pulse rounded-lg" />}
           </div>
-          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground"><MoreVertical className="w-5 h-5" /></Button>
+          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground cursor-pointer"><MoreVertical className="w-5 h-5" /></Button>
         </div>
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 custom-scrollbar flex flex-col gap-6">
@@ -166,9 +168,9 @@ export default function Chat() {
             <div className="pl-2 flex-shrink-0">
               <MediaButton onSelect={(mediaContent) => {
                 setSendError("");
-                sendMessage.mutate({ conversationId, data: { content: mediaContent } }, {
+                sendMessage.mutate({ conversationId: hookConversationId, data: { content: mediaContent } }, {
                   onSuccess: () => {
-                    queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(conversationId) });
+                    queryClient.invalidateQueries({ queryKey: getGetMessagesQueryKey(hookConversationId) });
                     queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
                   },
                   onError: (error: any) => setSendError(error?.message || "Couldn't send that message. Please try again.")
@@ -176,7 +178,7 @@ export default function Chat() {
               }} />
             </div>
             <Input value={content} onChange={(e) => setContent(e.target.value)} placeholder="Type a message..." className="flex-1 border-0 bg-transparent ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 px-2 h-12" />
-            <Button type="submit" size="icon" variant="glow" disabled={!content.trim() || sendMessage.isPending} className="h-9 w-9 rounded-lg shrink-0"><Send className="w-4 h-4 ml-0.5" /></Button>
+            <Button type="submit" size="icon" variant="glow" disabled={!content.trim() || sendMessage.isPending} className="h-9 w-9 rounded-lg shrink-0 cursor-pointer disabled:cursor-not-allowed"><Send className="w-4 h-4 ml-0.5" /></Button>
           </form>
         </div>
       </div>
