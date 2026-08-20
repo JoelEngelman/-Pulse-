@@ -5,148 +5,49 @@
  * Messaging app API
  * OpenAPI spec version: 0.1.0
  */
-export interface HealthStatus {
-  status: string;
-}
-
-export interface OkResponse {
-  ok: boolean;
-}
-
-export interface ErrorResponse {
-  error: string;
-}
-
+export interface HealthStatus { status: string; }
+export interface OkResponse { ok: boolean; }
+export interface ErrorResponse { error: string; }
 export interface User {
   id: number;
   username: string;
   displayName: string;
-  /** @nullable */
-  avatarUrl?: string | null;
-  /** @nullable */
-  bio?: string | null;
+  /** @nullable */ avatarUrl?: string | null;
+  /** @nullable */ bio?: string | null;
   isOnline: boolean;
   lastSeen: string;
   createdAt: string;
+  /** When true, a new conversation may only be started after searching this user's exact username. */
+  messageSearchOnly?: boolean;
 }
-
 export interface AuthUser {
   id: number;
   username: string;
   displayName: string;
-  /** @nullable */
-  avatarUrl?: string | null;
-  /** @nullable */
-  bio?: string | null;
+  /** @nullable */ avatarUrl?: string | null;
+  /** @nullable */ bio?: string | null;
   isOnline: boolean;
   lastSeen: string;
   createdAt: string;
+  /** When true, a new conversation may only be started after searching this user's exact username. */
+  messageSearchOnly?: boolean;
 }
-
-export interface RegisterInput {
-  /**
-     * @minLength 3
-     * @maxLength 30
-     */
-  username: string;
-  /**
-     * @minLength 1
-     * @maxLength 50
-     */
-  displayName: string;
-  /** @minLength 6 */
-  password: string;
-}
-
-export interface LoginInput {
-  username: string;
-  password: string;
-}
-
+export interface RegisterInput { username: string; displayName: string; password: string; }
+export interface LoginInput { username: string; password: string; }
 export interface UserUpdate {
-  /**
-     * @minLength 1
-     * @maxLength 50
-     */
   displayName?: string;
-  /** @maxLength 200 */
   bio?: string;
   avatarUrl?: string;
+  messageSearchOnly?: boolean;
 }
-
-export interface Reaction {
-  emoji: string;
-  count: number;
-  userIds: number[];
-}
-
-export interface Message {
-  id: number;
-  conversationId: number;
-  senderId: number;
-  sender?: User | null;
-  content: string;
-  /** @nullable */
-  editedAt?: string | null;
-  createdAt: string;
-  reactions: Reaction[];
-}
-
-export interface Conversation {
-  id: number;
-  participants: User[];
-  lastMessage?: Message | null;
-  unreadCount: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ConversationInput {
-  participantId: number;
-}
-
-export interface MessageInput {
-  /** @minLength 1 */
-  content: string;
-}
-
-export interface MessageUpdate {
-  /** @minLength 1 */
-  content: string;
-}
-
-export interface ReactionInput {
-  emoji: string;
-}
-
-export interface TypingInput {
-  isTyping: boolean;
-}
-
-export interface TypingUser {
-  userId: number;
-  username: string;
-  displayName: string;
-}
-
-export interface MessageSearchResult {
-  message: Message;
-  conversationId: number;
-}
-
-export type ListUsersParams = {
-search?: string;
-};
-
-export type GetMessagesParams = {
-/**
- * Load messages before this message ID (pagination)
- */
-before?: number;
-limit?: number;
-};
-
-export type SearchMessagesParams = {
-q: string;
-};
-
+export interface Reaction { emoji: string; count: number; userIds: number[]; }
+export interface Conversation { id: string; participants: User[]; lastMessage?: Message | null; unreadCount: number; createdAt: string; updatedAt: string; }
+export interface ConversationInput { participantId: number; }
+export interface Message { id: number; conversationId: string; senderId: number; sender?: User | null; content: string; editedAt?: string | null; createdAt: string; readAt?: string | null; reactions: Reaction[]; }
+export interface MessageInput { content: string; }
+export interface MessageUpdate { content: string; }
+export interface TypingInput { isTyping: boolean; }
+export interface TypingUser { userId: number; username: string; displayName: string; }
+export interface GetMessagesParams { conversationId: string; }
+export interface SearchMessagesParams { q: string; }
+export interface MessageSearchResult { conversationId: string; message: Message; }
