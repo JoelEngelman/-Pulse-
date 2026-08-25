@@ -8,7 +8,7 @@ export type AuthTokenGetter = () => Promise<string | null> | string | null;
 
 const NO_BODY_STATUS = new Set([204, 205, 304]);
 const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
-const DEFAULT_BROWSER_API_URL = "https://pulse-api.joeldavidengelman.workers.dev";
+const DEFAULT_BROWSER_API_URL = "https://94cbf40d-pulse-api.joeldavidengelman.workers.dev";
 
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
