@@ -1,0 +1,36 @@
+name: Connect Pulse frontend to API proxy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  connect-api:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Replace Pulse API endpoint
+        run: |
+          OLD='https://pulse-api.joeldavidengelman.workers.dev'
+          NEW='https://aae6e54a-pulse-api-proxy.joeldavidengelman.workers.dev'
+          grep -RIl --exclude-dir=node_modules --exclude-dir=.git "$OLD" artifacts/chat-app | xargs -r sed -i "s|$OLD|$NEW|g"
+
+      - name: Commit endpoint update
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add artifacts/chat-app
+          if git diff --cached --quiet; then
+            echo 'API endpoint is already connected.'
+            exit 0
+          fi
+          git commit -m 'Connect Pulse frontend to API proxy'
+          git push
