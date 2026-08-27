@@ -1,4 +1,4 @@
-const UPSTREAM = "https://94cbf40d-pulse-api.joeldavidengelman.workers.dev";
+const UPSTREAM = "https://pulse-api.joeldavidengelman.workers.dev";
 const ALLOWED_ORIGIN = "https://joelengelman.github.io";
 
 function cors(request) {
