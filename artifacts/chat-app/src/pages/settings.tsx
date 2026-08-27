@@ -8,7 +8,7 @@ import { useTheme, THEME_OPTIONS, type Theme } from "@/hooks/use-theme";
 import { useLogout } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 
-const API = "https://pulse-api.joeldavidengelman.workers.dev";
+const API = "https://aae6e54a-pulse-api-proxy.joeldavidengelman.workers.dev";
 const ACCOUNTS_KEY = "pulse-saved-accounts";
 function savedAccounts(): string[] { try { return JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || "[]"); } catch { return []; } }
 
