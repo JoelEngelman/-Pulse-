@@ -2,12 +2,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 
 export type Theme = "dark" | "light" | "aurora" | "ocean" | "sunset" | "sakura" | "forest" | "midnight" | "nebula";
 
-export type ThemeOption = {
-  id: Theme;
-  name: string;
-  description: string;
-  image: string;
-};
+export type ThemeOption = { id: Theme; name: string; description: string; image: string };
 
 export const THEME_OPTIONS: ThemeOption[] = [
   { id: "dark", name: "Classic Dark", description: "Pulse's original dark look", image: "" },
@@ -21,12 +16,7 @@ export const THEME_OPTIONS: ThemeOption[] = [
   { id: "nebula", name: "Nebula", description: "Deep space", image: "https://images.unsplash.com/photo-1462331940025-496dfbfc7564?auto=format&fit=crop&w=1600&q=85" },
 ];
 
-type ThemeContextType = {
-  theme: Theme;
-  setTheme: (theme: Theme) => void;
-  toggleTheme: () => void;
-};
-
+type ThemeContextType = { theme: Theme; setTheme: (theme: Theme) => void; toggleTheme: () => void };
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const STORAGE_KEY = "pulse-theme";
 
@@ -35,12 +25,11 @@ function getInitialTheme(): Theme {
     const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
     if (stored && THEME_OPTIONS.some((option) => option.id === stored)) return stored;
   } catch {}
-  return "dark";
+  return "midnight";
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(getInitialTheme);
-
   useEffect(() => {
     const root = document.documentElement;
     root.classList.remove("dark", "light", "theme-aurora", "theme-ocean", "theme-sunset", "theme-sakura", "theme-forest", "theme-midnight", "theme-nebula");
@@ -49,10 +38,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     root.dataset.pulseTheme = theme;
     try { localStorage.setItem(STORAGE_KEY, theme); } catch {}
   }, [theme]);
-
   const setTheme = (next: Theme) => setThemeState(next);
   const toggleTheme = () => setThemeState((t) => t === "dark" ? "light" : "dark");
-
   return <ThemeContext.Provider value={{ theme, setTheme, toggleTheme }}>{children}</ThemeContext.Provider>;
 }
 
