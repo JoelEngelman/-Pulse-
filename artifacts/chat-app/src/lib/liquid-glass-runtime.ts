@@ -19,10 +19,11 @@ function makeDisplacementMap(w: number, h: number, radius: number) {
   canvas.width = Math.max(32, Math.round(w * scale)); canvas.height = Math.max(32, Math.round(h * scale));
   const ctx = canvas.getContext("2d")!; const cw = canvas.width, ch = canvas.height;
   const image = ctx.createImageData(cw, ch); const data = image.data;
-  const bezel = Math.max(8, Math.min(cw, ch) * .075); const r = Math.max(2, radius * scale);
+  const bezel = Math.max(8, Math.min(cw, ch) * .075); const radiusPx = Math.max(2, radius * scale);
   for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
     const edgeX = Math.min(x, cw - 1 - x), edgeY = Math.min(y, ch - 1 - y);
-    const d = Math.min(edgeX, edgeY); const t = Math.max(0, Math.min(1, d / bezel));
+    const cornerDistance = Math.hypot(Math.max(0, radiusPx - edgeX), Math.max(0, radiusPx - edgeY));
+    const d = Math.min(edgeX, edgeY, cornerDistance); const t = Math.max(0, Math.min(1, d / bezel));
     const strength = (1 - t) * (1 - t) * .9; const nx = x < cw / 2 ? 1 : -1; const ny = y < ch / 2 ? 1 : -1;
     const i = (y * cw + x) * 4; data[i] = 128 + nx * strength * 110; data[i + 1] = 128 + ny * strength * 110; data[i + 2] = 128; data[i + 3] = 255;
   }
@@ -40,8 +41,8 @@ function applyLiquidGlass(el: HTMLElement): GlassInstance {
   const refresh = () => { const rect = el.getBoundingClientRect(); if (!rect.width || !rect.height) return; const radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 22; image.setAttribute("href", makeDisplacementMap(rect.width, rect.height, radius)); };
   el.classList.add("pulse-liquid-glass");
   el.style.setProperty("--pulse-liquid-filter", `url(#${id})`);
-  el.style.backdropFilter = `var(--pulse-liquid-filter) blur(4px) saturate(180%) brightness(1.04)`;
-  el.style.webkitBackdropFilter = `var(--pulse-liquid-filter) blur(4px) saturate(180%) brightness(1.04)`;
+  const material = `var(--pulse-liquid-filter) blur(4px) saturate(180%) brightness(1.04)`;
+  el.style.setProperty("backdrop-filter", material); el.style.setProperty("-webkit-backdrop-filter", material);
   refresh();
   const observer = new ResizeObserver(() => refresh()); observer.observe(el);
   return { refresh, destroy: () => { observer.disconnect(); filter.remove(); el.classList.remove("pulse-liquid-glass"); el.style.removeProperty("--pulse-liquid-filter"); el.style.removeProperty("backdrop-filter"); el.style.removeProperty("-webkit-backdrop-filter"); } };
