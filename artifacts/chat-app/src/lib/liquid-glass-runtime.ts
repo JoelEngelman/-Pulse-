@@ -41,7 +41,7 @@ function applyLiquidGlass(el: HTMLElement): GlassInstance {
   const refresh = () => { const rect = el.getBoundingClientRect(); if (!rect.width || !rect.height) return; const radius = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 22; image.setAttribute("href", makeDisplacementMap(rect.width, rect.height, radius)); };
   el.classList.add("pulse-liquid-glass");
   el.style.setProperty("--pulse-liquid-filter", `url(#${id})`);
-  const material = `var(--pulse-liquid-filter) blur(4px) saturate(180%) brightness(1.04)`;
+  const material = `var(--pulse-liquid-filter) blur(24px) saturate(180%) brightness(1.04)`;
   el.style.setProperty("backdrop-filter", material); el.style.setProperty("-webkit-backdrop-filter", material);
   refresh();
   const observer = new ResizeObserver(() => refresh()); observer.observe(el);
@@ -53,12 +53,12 @@ function shouldGlass(el: Element) {
   if (el.dataset.liquidGlass === "off" || el.classList.contains("pulse-liquid-glass")) return false;
   if (el.classList.contains("glass-panel")) return true;
   const cls = el.className; if (typeof cls !== "string") return false;
-  if (!/(bg-card\/(30|40|50)|bg-background\/50|bg-secondary\/(20|30|35|40|50))/.test(cls)) return false;
-  const r = el.getBoundingClientRect(); return r.width >= 180 && r.height >= 44 && r.width * r.height < 700000;
+  if (!/(bg-card\/(30|40|50|70)|bg-background\/50|bg-secondary\/(20|30|35|40|50)|backdrop-blur)/.test(cls)) return false;
+  const r = el.getBoundingClientRect(); return r.width >= 140 && r.height >= 36 && r.width * r.height < 900000;
 }
 
 function scan(root: ParentNode = document) {
-  const candidates = Array.from(root.querySelectorAll<HTMLElement>(".glass-panel, [class*='bg-card/'], [class*='bg-background/'], [class*='bg-secondary/']"));
+  const candidates = Array.from(root.querySelectorAll<HTMLElement>(".glass-panel, [class*='bg-card/'], [class*='bg-background/'], [class*='bg-secondary/'], [class*='backdrop-blur']"));
   for (const el of candidates) if (shouldGlass(el)) instances.set(el, applyLiquidGlass(el));
 }
 
