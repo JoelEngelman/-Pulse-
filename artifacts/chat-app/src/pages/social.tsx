@@ -7,7 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getInitials } from "@/lib/utils";
 import { BadgeList } from "@/lib/badges";
 
-const API="https://aae6e54a-pulse-api-proxy.joeldavidengelman.workers.dev";
+const API="https://pulse-api-proxy.joeldavidengelman.workers.dev";
 const filters=[["Normal","none"],["Mono","grayscale(1)"],["Warm","sepia(.35) saturate(1.25)"],["Cool","saturate(.8) hue-rotate(25deg)"],["Fade","contrast(.88) brightness(1.08) saturate(.72)"],["Vivid","contrast(1.15) saturate(1.35)"]] as const;
 async function api(path:string,options:RequestInit={}){const r=await fetch(`${API}${path}`,{...options,credentials:"include",headers:{"Content-Type":"application/json",...(options.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||`HTTP ${r.status}`);return d;}
 function ago(v:string){const s=Math.max(1,Math.floor((Date.now()-new Date(v).getTime())/1000));if(s<60)return `${s}s`;if(s<3600)return `${Math.floor(s/60)}m`;if(s<86400)return `${Math.floor(s/3600)}h`;return `${Math.floor(s/86400)}d`;}

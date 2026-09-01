@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getInitials } from "@/lib/utils";
 
-const API = "https://aae6e54a-pulse-api-proxy.joeldavidengelman.workers.dev";
+const API = "https://pulse-api-proxy.joeldavidengelman.workers.dev";
 
 type User = { id: number; username: string; displayName: string; avatarUrl?: string | null; bio?: string | null };
 type Comment = { id: string; content: string; createdAt: string; user: User };

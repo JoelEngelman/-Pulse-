@@ -13,7 +13,7 @@ import { getInitials } from "@/lib/utils";
 import { recordMessage } from "@/lib/achievements";
 import { startPulseCall } from "@/components/calling/call-manager";
 
-const PRESENCE_API = "https://aae6e54a-pulse-api-proxy.joeldavidengelman.workers.dev";
+const PRESENCE_API = "https://pulse-api-proxy.joeldavidengelman.workers.dev";
 function isActuallyOnline(user: any) {
   if (!user) return false;
   const lastSeen = user.lastSeen ? new Date(user.lastSeen).getTime() : 0;

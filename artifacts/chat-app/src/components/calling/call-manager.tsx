@@ -3,7 +3,7 @@ import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 
 const PEER_SCRIPT = "https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js";
-const API = "https://aae6e54a-pulse-api-proxy.joeldavidengelman.workers.dev";
+const API = "https://pulse-api-proxy.joeldavidengelman.workers.dev";
 type CallMode = "voice" | "video";
 type CallTarget = { id: number; displayName: string; username: string; avatarUrl?: string | null; peerId?: string | null };
 type ActiveCall = { remote: CallTarget; incoming: boolean; mode: CallMode };
