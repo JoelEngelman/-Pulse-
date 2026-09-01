@@ -20,7 +20,7 @@ jobs:
       - name: Replace Pulse API endpoint
         run: |
           OLD='https://pulse-api.joeldavidengelman.workers.dev'
-          NEW='https://aae6e54a-pulse-api-proxy.joeldavidengelman.workers.dev'
+          NEW='https://pulse-api-proxy.joeldavidengelman.workers.dev'
           grep -RIl --exclude-dir=node_modules --exclude-dir=.git "$OLD" artifacts/chat-app | xargs -r sed -i "s|$OLD|$NEW|g"
 
       - name: Commit endpoint update
@@ -32,5 +32,5 @@ jobs:
             echo 'API endpoint is already connected.'
             exit 0
           fi
-          git commit -m 'Connect Pulse frontend to API proxy'
+          git commit -m 'Use working Pulse API proxy hostname'
           git push
