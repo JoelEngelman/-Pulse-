@@ -17,9 +17,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Replace Pulse API endpoint
+      - name: Replace all stale Pulse API proxy endpoints
         run: |
-          OLD='https://pulse-api.joeldavidengelman.workers.dev'
+          OLD='https://aae6e54a-pulse-api-proxy.joeldavidengelman.workers.dev'
           NEW='https://pulse-api-proxy.joeldavidengelman.workers.dev'
           grep -RIl --exclude-dir=node_modules --exclude-dir=.git "$OLD" artifacts/chat-app | xargs -r sed -i "s|$OLD|$NEW|g"
 
@@ -29,8 +29,8 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add artifacts/chat-app
           if git diff --cached --quiet; then
-            echo 'API endpoint is already connected.'
+            echo 'All frontend API endpoints are already connected.'
             exit 0
           fi
-          git commit -m 'Use working Pulse API proxy hostname'
+          git commit -m 'Replace stale Pulse API proxy endpoints'
           git push
