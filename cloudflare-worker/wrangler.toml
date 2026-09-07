@@ -1,5 +1,5 @@
 name = "pulse-api"
-main = "src/index.ts"
+main = "src/moderation-worker.ts"
 compatibility_date = "2026-08-18"
 
 [vars]
